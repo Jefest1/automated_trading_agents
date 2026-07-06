@@ -1,0 +1,49 @@
+{
+  "servers": [
+    {
+      "name": "context7_docs",
+      "transport": "http",
+      "enabled": false,
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "env:CONTEXT7_API_KEY"
+      },
+      "description": "Hosted documentation MCP for current library/API docs. API key is optional but recommended for higher limits."
+    },
+    {
+      "name": "gitmcp_langgraph",
+      "transport": "http",
+      "enabled": false,
+      "url": "https://gitmcp.io/langchain-ai/langgraph",
+      "description": "Hosted GitMCP context for LangGraph source/docs research."
+    },
+    {
+      "name": "gitmcp_deepagents",
+      "transport": "http",
+      "enabled": false,
+      "url": "https://gitmcp.io/langchain-ai/deepagents",
+      "description": "Hosted GitMCP context for Deep Agents source/docs research."
+    },
+    {
+      "name": "gitmcp_binance_skills_hub",
+      "transport": "http",
+      "enabled": false,
+      "url": "https://gitmcp.io/binance/binance-skills-hub",
+      "description": "Hosted GitMCP context for Binance Skills Hub research only; no execution-capable Binance skill is enabled."
+    },
+    {
+      "name": "helium_news",
+      "transport": "http",
+      "enabled": true,
+      "url": "https://heliumtrades.com/mcp",
+      "description": "Helium remote MCP: crypto/stock news with source-bias scoring, balanced AI-synthesized news, and ticker data. Read-only."
+    },
+    {
+      "name": "fxmacrodata",
+      "transport": "http",
+      "enabled": true,
+      "url": "https://fxmacrodata.com/mcp",
+      "description": "FXMacroData remote MCP: FX spot rates, central-bank policy rates, COT positioning, macro release calendar/briefings. Read-only macro regime context."
+    }
+  ]
+}

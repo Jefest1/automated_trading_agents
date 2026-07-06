@@ -1,0 +1,31 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Runtime state
+.trading_agent/
+.trading_agent_test/
+.trading_agent*/
+*.sqlite3
+checkpoints.sqlite3
+.trading_agent_history
+
+# Logs
+logs/
+logs.txt
+*.log
+
+# Reports
+reports/
+
+# Skills hub staging
+.agents/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.python-version
+
+The trading Agent.md
