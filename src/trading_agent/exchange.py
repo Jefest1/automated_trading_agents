@@ -35,7 +35,7 @@ def _retryable(method: str, exc: BinanceRequestError) -> bool:
         return True  # stale timestamp; the retry re-signs with a fresh one
     if method == "POST":
         # Mutating call: retry only when the venue guarantees the request was
-        # rejected before execution (rate limit). 5xx/timeouts are ambiguous —
+        # rejected before execution (rate limit). 5xx/timeouts are ambiguous;
         # the PENDING_SUBMIT reconciliation resolves those instead.
         return exc.status in {418, 429}
     if exc.status is None:
@@ -68,6 +68,10 @@ class BinanceSpotAdapter:
         self.settings = settings or load_settings()
         self.urlopen = urlopen
         self._filters_cache: dict[str, dict[str, Decimal]] = {}
+        # Signed-timestamp offset vs the venue clock (server - local, ms). Even a
+        # "correct" local clock can drift/lag past recvWindow; syncing against
+        # /v3/time makes signed requests independent of local time accuracy.
+        self._time_offset_ms: int | None = None
 
     @staticmethod
     def credentials_from_env(
@@ -329,6 +333,28 @@ class BinanceSpotAdapter:
                 time.sleep(_BACKOFF_SECONDS[min(attempt, len(_BACKOFF_SECONDS) - 1)])
         raise AssertionError("unreachable")
 
+    def _synced_timestamp_ms(self) -> int:
+        """Local time corrected by the cached venue clock offset."""
+        return int(time.time() * 1000) + (self._time_offset_ms or 0)
+
+    def _sync_server_time(self) -> None:
+        """Refresh the venue clock offset from /v3/time (public, unsigned).
+
+        Best-effort: on failure the previous offset (or 0) is kept and the
+        signed request proceeds; a -1021 there retries through here again.
+        """
+        try:
+            local_before = int(time.time() * 1000)
+            server = self._public_request("GET", "/v3/time", {})
+            server_time = int(server.get("serverTime", 0))
+            if server_time:
+                # Approximate one-way latency by halving the round trip.
+                local_after = int(time.time() * 1000)
+                midpoint = (local_before + local_after) // 2
+                self._time_offset_ms = server_time - midpoint
+        except Exception:
+            pass
+
     def _signed_request(
         self,
         credentials: BinanceCredentials,
@@ -336,11 +362,13 @@ class BinanceSpotAdapter:
         endpoint: str,
         params: dict[str, Any],
     ) -> Any:
+        if self._time_offset_ms is None:
+            self._sync_server_time()
         for attempt in range(_MAX_ATTEMPTS):
             signed_params = dict(params)
             # Fresh timestamp and signature per attempt: a retry after a -1021
             # rejection or backoff sleep must not reuse the stale signature.
-            signed_params["timestamp"] = int(time.time() * 1000)
+            signed_params["timestamp"] = self._synced_timestamp_ms()
             signed_params.setdefault("recvWindow", _RECV_WINDOW_MS)
             query = urllib.parse.urlencode(signed_params)
             signature = hmac.new(
@@ -356,6 +384,9 @@ class BinanceSpotAdapter:
             except BinanceRequestError as exc:
                 if attempt == _MAX_ATTEMPTS - 1 or not _retryable(method, exc):
                     raise
+                if "-1021" in str(exc):
+                    # Clock rejected: resync against the venue before re-signing.
+                    self._sync_server_time()
                 time.sleep(_BACKOFF_SECONDS[min(attempt, len(_BACKOFF_SECONDS) - 1)])
         raise AssertionError("unreachable")
 

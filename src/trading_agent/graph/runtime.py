@@ -205,8 +205,8 @@ class SupervisorRuntime:
     def monitor_open_positions(self) -> dict[str, Any]:
         """Fast, cheap exit check between decision cycles (no LLM, no research).
 
-        Runs the SAME deterministic exit machinery as a cycle — the deterministic
-        reconcile and the exchange tiered ladder/virtual stop — but ONLY for
+        Runs the SAME deterministic exit machinery as a cycle; the deterministic
+        reconcile and the exchange tiered ladder/virtual stop; but ONLY for
         symbols with an open position, so TP/SL touches are acted on within
         `bracket_monitor_seconds` instead of waiting for the next hourly cycle.
         Holds the invocation lock so it can never interleave with a cycle that is
@@ -309,7 +309,7 @@ class SupervisorRuntime:
 
         Returns {"message": <assistant markdown>, "decisions": [...], "errors": [...]}.
         Any BUY/SELL/CLOSE/ADJUST decision in the reply is parsed but NOT
-        executed here — the caller must gate and confirm it
+        executed here; the caller must gate and confirm it
         (see execute_operator_decision).
         """
         if not self.settings.enable_llm_supervisor:
@@ -382,7 +382,7 @@ class SupervisorRuntime:
         """Gate and execute one operator-confirmed chat decision.
 
         Runs the SAME deterministic pipeline as a cycle: fresh snapshots and
-        signal evidence, pre-trade blockers, RiskGovernor — then execution
+        signal evidence, pre-trade blockers, RiskGovernor; then execution
         (operator_initiated relaxes only the autonomous-live-orders flag,
         never the risk gate).
 
@@ -498,7 +498,7 @@ class SupervisorRuntime:
     def build_deep_agent(self, tools: list[Any] | None = None, *, tier: str = "FULL") -> Any:
         # extra_tools reaches the ROOT supervisor, not just the subagents:
         # /chat's ops tools (list_open_orders etc.) must be directly callable
-        # by the supervisor — its prompt instructs it to use them.
+        # by the supervisor; its prompt instructs it to use them.
         # REVIEW tier: cheaper model + only the review subagents (manage-only).
         if tier == "REVIEW" and self.config.cost.quiet_model:
             model = create_model(self.settings, identifier_override=self.config.cost.quiet_model)
@@ -609,7 +609,7 @@ class SupervisorRuntime:
         """Compact tiered-exit state for the supervisor: which TP tiers have
         banked, whether the runner is riding, and the current (ratcheting) stop.
         The deterministic ladder manages scale-out, so the LLM should not
-        full-CLOSE a winner that is still riding — only on a thesis break."""
+        full-CLOSE a winner that is still riding; only on a thesis break."""
         plan = getattr(order, "exit_plan", None)
         if plan is None:
             return None
@@ -733,9 +733,8 @@ class SupervisorRuntime:
             "open_position_count": len(open_positions),
             "max_open_positions": self.config.risk.max_open_positions,
             "recent_closed_trades": per_trade,
-            # Memory loop: what recent trades actually did + the desk's realized
-            # win-rate / average-R / expectancy, so conviction is grounded in
-            # outcomes rather than starting from a blank slate each cycle.
+            # Recent trade outcomes plus realized win-rate / average-R / expectancy,
+            # so each cycle's conviction is grounded in results.
             "recent_reflections": self.store.recent_reflections(8),
             "trade_stats": self.store.trade_stats(),
             "realized_pnl_total": summary.get("realized_pnl"),

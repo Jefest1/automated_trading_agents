@@ -138,8 +138,8 @@ def load_mcp_tool_allowlist(home: str | Path) -> list[str] | None:
     When present and non-empty, only MCP tools whose name is on the list are kept
     and handed to the agents; everything else is dropped before its schema is ever
     injected into a prompt. Absent/empty -> keep all loaded tools (legacy behavior).
-    Hosted MCP servers (e.g. FXMacroData) expose dozens of niche tools — including
-    image/``*_visual_artifact`` generators a text agent cannot consume — whose
+    Hosted MCP servers (e.g. FXMacroData) expose dozens of niche tools; including
+    image/``*_visual_artifact`` generators a text agent cannot consume; whose
     schemas otherwise cost ~20k tokens in every research agent every cycle.
     """
     path = mcp_config_path(home)

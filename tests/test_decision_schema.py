@@ -99,7 +99,7 @@ class ParseDecisionTest(unittest.TestCase):
         self.assertEqual(stances["reporting"], "neutral")
 
     def test_approve_long_stance_does_not_reject_decision(self) -> None:
-        # Regression: live cycle 7 (run_2da5a284baf84302) — risk_review returned
+        # Regression: live cycle 7 (run_2da5a284baf84302); risk_review returned
         # stance "approve_long" and the supervisor's only actionable BUY was
         # dropped by validation instead of being normalized.
         rows = consultations()

@@ -3,7 +3,7 @@
 The supervisor deep agent is the trader: after consulting all specialist
 subagents it must emit one final fenced ```json block containing its
 decision(s). That block is parsed and validated here. Anything malformed,
-incomplete, or missing degrades deterministically to WAIT — the LLM can
+incomplete, or missing degrades deterministically to WAIT; the LLM can
 never bypass the risk gate by producing creative output. Approved BUY
 decisions map onto TradeIntent and flow through the unchanged deterministic
 pre-trade checks and RiskGovernor.
@@ -136,10 +136,9 @@ class SupervisorDecision(BaseModel):
     quantity: float | None = None
     stop_loss_pct: float | None = None
     take_profit_pct: float | None = None
-    # Absolute demand-zone levels. When the desk reasons in prices ("invalidation
-    # 72.08, target 73.84") it can give them here; they take precedence over the
-    # percentages so the BOOKED stop is the zone invalidation, not a fixed % off
-    # entry. Either form works; the gate reconciles them.
+    # Absolute stop/target levels. When given, they take precedence over the
+    # percentage fields so the booked stop is the zone invalidation rather than a
+    # fixed offset from entry; the gate reconciles whichever form is supplied.
     stop_price: float | None = None
     target_price: float | None = None
     target_order_id: str | None = None
@@ -184,10 +183,9 @@ class SupervisorDecision(BaseModel):
         tp_pct = (
             self.take_profit_pct if self.take_profit_pct is not None else config.risk.take_profit_pct
         )
-        # Resolve ABSOLUTE stop/target so the booked exit bracket equals the zone
-        # invalidation the desk reasoned. Prefer an explicit price; otherwise derive
-        # it from the percentage. Keep the relative pct consistent with the absolute
-        # stop so the RiskGovernor's per-trade risk check matches the booked stop.
+        # Resolve absolute stop/target: prefer an explicit price, otherwise derive
+        # it from the percentage. The relative pct is kept consistent with the
+        # absolute stop so the RiskGovernor risk check matches the booked stop.
         stop_price = self.stop_price
         if stop_price is not None and stop_price > 0 and limit > 0:
             stop_pct = max(0.0, (limit - stop_price) / limit)
@@ -304,8 +302,7 @@ def _infer_stance(value: Any) -> str:
     """Best-effort stance for vocabulary outside _STANCE_ALIASES.
 
     A consultation stance the schema does not recognize must never reject the
-    whole decision (observed live: risk_review said "approve_long" and the
-    supervisor's BUY was dropped). Unrecognizable wording degrades to abstain.
+    whole decision; unrecognizable wording degrades to abstain.
     """
     if not isinstance(value, str):
         return "abstain"
@@ -373,7 +370,7 @@ DECISION_FORMAT_REFERENCE = """
 FINAL DECISION CONTRACT (mandatory)
 After consulting ALL seven subagents (market_research, technical_analyst,
 news_research, onchain_research, strategy, risk_review, reporting), end your reply
-with ONE fenced json block containing your decision(s) — an object, or an array
+with ONE fenced json block containing your decision(s); an object, or an array
 with one object per symbol:
 
 ```json
@@ -414,7 +411,7 @@ Rules:
   get_price/get_orderbook_ticker, will be rejected and treated as WAIT.
 - evidence_refs MUST be ids copied verbatim from the CYCLE CONTEXT
   "evidence_available" list (e.g. "ev_..."). A BUY whose evidence_refs cite no
-  real id is rejected — do not invent ids or describe evidence in prose there.
+  real id is rejected; do not invent ids or describe evidence in prose there.
 - Malformed JSON is treated as WAIT for every symbol. Your decision is then
   checked by the deterministic RiskGovernor, which can veto it.
 """.strip()

@@ -3,9 +3,8 @@
 These tools are the only sanctioned source of current prices for agents:
 prices must come from the exchange API, never be inferred from news or
 recalled from model memory. Market data always uses the production public
-endpoints (api.binance.com) — testnet tickers are thin and diverge from the
-real market, which previously caused agents to quote prices that did not
-match the charts.
+endpoints (api.binance.com); testnet tickers are thin and diverge from the
+real market.
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ def _error(tool_name: str, exc: Exception, **context: Any) -> str:
 def get_price(symbol: str) -> str:
     """Get the current live price of a spot symbol from the Binance public API.
 
-    This is the authoritative current price — never infer prices from news,
+    This is the authoritative current price; never infer prices from news,
     memory, or charts described by others. Example: get_price("BTCUSDT").
     Returns {"symbol", "price"}.
     """
@@ -281,8 +280,8 @@ def level_map_for(symbol: str, current_price: float | None = None):
     """Build a deterministic LevelMap (support/resistance zones + regime) for a symbol.
 
     Fetches monthly..1h public candles and runs the core.levels engine. Best-effort:
-    returns None on any failure so a market-data hiccup degrades to the old shallow
-    maker behaviour rather than blocking the cycle.
+    returns None on any failure so a market-data hiccup degrades to the shallow
+    maker fallback rather than blocking the cycle.
     """
     from trading_agent.core import levels as levels_engine
 

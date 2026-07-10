@@ -40,6 +40,7 @@ class ExchangeAdapterTest(unittest.TestCase):
             settings=Settings(),
             urlopen=fake_urlopen,
         )
+        adapter._time_offset_ms = 0  # pin: no /v3/time sync request in the sequence
         result = adapter.validate_limit_order(
             BinanceCredentials(api_key="key", api_secret="secret"),
             "btcusdt",
@@ -67,6 +68,7 @@ class ExchangeAdapterTest(unittest.TestCase):
             settings=Settings(),
             urlopen=fake_urlopen,
         )
+        adapter._time_offset_ms = 0  # pin: no /v3/time sync request in the sequence
         result = adapter.submit_limit_order(
             BinanceCredentials(api_key="key", api_secret="secret"),
             "BTCUSDT",

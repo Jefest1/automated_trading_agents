@@ -41,7 +41,7 @@ def build_console() -> Console:
       names and LLM glyphs - write UTF-8 with replacement.
     - Interactive legacy Windows consoles (cp1252 etc.): keep the console
       encoding, but replace unencodable characters instead of raising
-      UnicodeEncodeError (which previously killed the UI pump thread).
+      UnicodeEncodeError (which would kill the UI pump thread).
     """
     if not sys.stdout.isatty():
         stream = io.TextIOWrapper(

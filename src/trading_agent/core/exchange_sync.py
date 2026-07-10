@@ -127,9 +127,8 @@ class ExchangeReconciler:
                     continue
                 if order.status == OrderStatus.POSITION_OPEN:
                     # Re-check on fill: if the entry just filled but price is already
-                    # below the stop (the demand zone broke into/just after the fill),
-                    # exit immediately instead of arming the bracket — out small rather
-                    # than riding a thesis that is already invalidated.
+                    # below the stop (the demand zone broke through the fill), exit
+                    # immediately instead of arming the bracket.
                     if (
                         changed
                         and snapshot is not None
@@ -328,7 +327,7 @@ class ExchangeReconciler:
         """Manage an open position's exits with REAL resting take-profit orders.
 
         Take-profit tiers are placed as actual LIMIT SELL orders on the exchange,
-        so the venue fills them the instant price touches — no hourly polling gap.
+        so the venue fills them the instant price touches; no hourly polling gap.
         We confirm tier fills (ratcheting the stop) and run a virtual trailing
         stop; a stop-out cancels the resting tiers and market-sells the rest."""
         if order.side != Side.BUY:
@@ -394,14 +393,38 @@ class ExchangeReconciler:
         # resting order instead of stacking a duplicate sell.
         client_order_id = f"tx{order.id.replace('_', '')[:20]}t{leg.tier}"
         existing = self._query_order(order.symbol, order_id=None, client_order_id=client_order_id)
-        if existing is not None and str(existing.get("status")) not in _TERMINAL_STATUSES:
-            self._bind_leg_exit(leg, str(existing.get("orderId")), client_order_id)
-            return
+        if existing is not None:
+            status = str(existing.get("status"))
+            executed = float(existing.get("executedQty", 0) or 0)
+            if status not in _TERMINAL_STATUSES or executed > 0:
+                # Live order OR a terminal order that actually sold base: adopt it.
+                # A TP resting below the market fills instantly as a taker; if the
+                # binding was lost (crash, later-leg exception), resubmitting would
+                # sell the same tier again. Terminal-with-fills is a fill to ingest,
+                # never a slot to refill.
+                self._bind_leg_exit(leg, str(existing.get("orderId")), client_order_id)
+                self.store.save_order(order)
+                if executed > 0 and status in _TERMINAL_STATUSES:
+                    self.store.log_event(
+                        "exchange_take_profit_adopted",
+                        {
+                            "order_id": order.id,
+                            "symbol": order.symbol,
+                            "tier": leg.tier,
+                            "exchange_order_id": str(existing.get("orderId")),
+                            "status": status,
+                            "executed_qty": executed,
+                        },
+                    )
+                return
         response = self.adapter.submit_limit_order(
             self.credentials, order.symbol, "SELL", quantity_q, price_q, client_order_id=client_order_id
         )
         raw = response.get("raw", {})
         self._bind_leg_exit(leg, str(raw.get("orderId", "")) or None, client_order_id)
+        # Persist the binding IMMEDIATELY: if a later leg's submit raises, an
+        # unsaved binding would orphan this live sell and re-place it next tick.
+        self.store.save_order(order)
         balances_after_submit = self._balance_proof(order.symbol)
         LOGGER.info(
             "resting take-profit placed order_id=%s symbol=%s tier=%s price=%s qty=%s exchange_order_id=%s",
@@ -454,10 +477,21 @@ class ExchangeReconciler:
                      "new_stop_price": plan.current_stop_price, "realized_pnl_so_far": order.realized_pnl},
                 )
                 changed = True
-            elif status in _TERMINAL_STATUSES:
-                # Canceled/expired unfilled: drop pointers so it re-rests next tick.
+            elif status in _TERMINAL_STATUSES and executed <= 0:
+                # Canceled/expired UNFILLED: drop pointers so it re-rests next tick.
+                # A terminal order with partial fills must NOT rearm its full size
+                # (that re-sells base already sold); mark it filled with what it got.
                 leg.exit_order_exchange_id = None
                 leg.exit_client_order_id = None
+                changed = True
+            elif status in _TERMINAL_STATUSES:
+                apply_tier_fill(
+                    plan, leg.tier, entry, self.exit_config, filled_qty=executed,
+                    exit_order_exchange_id=leg.exit_order_exchange_id,
+                    exit_client_order_id=leg.exit_client_order_id,
+                )
+                order.stop_loss_price = plan.current_stop_price
+                self._compute_realized_pnl(order)
                 changed = True
         held = order.executed_qty or order.quantity
         if remaining_quantity(plan, held) <= 1e-9 and all(leg.filled for leg in plan.legs):
@@ -517,7 +551,7 @@ class ExchangeReconciler:
     def _submit_exit(
         self, order: OrderRecord, price: float, reason: str, *, quantity: float | None = None
     ) -> None:
-        """Submit the ORDER-LEVEL exit (stop-out / operator close) — a market-ish
+        """Submit the ORDER-LEVEL exit (stop-out / operator close); a market-ish
         sell of the remaining quantity. Tier take-profits use resting leg orders
         instead (_place_leg_order). The fill is confirmed in _sync_exit."""
         already_exited = sum(f.qty for f in self.store.fills_for_order(order.id) if f.is_exit)
@@ -663,7 +697,7 @@ class ExchangeReconciler:
     ) -> dict[str, float]:
         """Best-effort quote prices for commission assets outside base/quote
         (typically BNB with the fee discount on). Uses the current book price,
-        so the PnL stays flagged estimated — but the fee is no longer ignored.
+        so the PnL stays flagged estimated; but the fee is no longer ignored.
         """
         assets = {
             (fill.commission_asset or "").upper()
@@ -745,7 +779,7 @@ class ExchangeReconciler:
         return float(ticker["bid_price"])
 
     def _balance_proof(self, symbol: str) -> dict[str, Any] | None:
-        """Base/quote free balances right now — the operator-facing evidence
+        """Base/quote free balances right now; the operator-facing evidence
         that a fill really moved funds (e.g. USDT down, SOL up). Best-effort:
         None when the account endpoint is unavailable."""
         try:

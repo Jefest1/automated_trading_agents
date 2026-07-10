@@ -39,17 +39,21 @@ class ClassifyCycleTest(unittest.TestCase):
     def test_first_cycle_of_day_is_full(self) -> None:
         self.assertEqual(_classify(is_first_cycle_of_day=True)[0], FULL)
 
-    def test_position_near_take_profit_is_full(self) -> None:
+    # Under the no-touch policy, bracket proximity / a moving PnL only warrants the
+    # cheap news-sentry REVIEW (the exit ladder manages the bracket mechanically);
+    # without a quiet_model it degrades to SKIP, never the expensive FULL desk.
+    def test_position_near_take_profit_is_sentry_review(self) -> None:
         views = [{"symbol": "BTCUSDT", "to_take_profit_pct": 0.2, "to_stop_loss_pct": 5.0}]
-        self.assertEqual(_classify(open_views=views)[0], FULL)
+        self.assertEqual(_classify(open_views=views)[0], REVIEW)
+        self.assertEqual(_classify(open_views=views, cost=CostConfig(quiet_model=None))[0], SKIP)
 
-    def test_position_near_stop_is_full(self) -> None:
+    def test_position_near_stop_is_sentry_review(self) -> None:
         views = [{"symbol": "BTCUSDT", "to_take_profit_pct": 5.0, "to_stop_loss_pct": -0.2}]
-        self.assertEqual(_classify(open_views=views)[0], FULL)
+        self.assertEqual(_classify(open_views=views)[0], REVIEW)
 
-    def test_pnl_band_breach_is_full(self) -> None:
+    def test_pnl_band_breach_is_sentry_review(self) -> None:
         views = [{"symbol": "BTCUSDT", "unrealized_pnl_pct": 1.2}]
-        self.assertEqual(_classify(open_views=views)[0], FULL)
+        self.assertEqual(_classify(open_views=views)[0], REVIEW)
 
     def test_material_move_is_full(self) -> None:
         # +1% move vs last mark = 100 bps >= 50 bps default.

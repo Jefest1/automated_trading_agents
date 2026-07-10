@@ -22,25 +22,24 @@ def conviction_size(
     regime_mult: float = 1.0,
     quality_mult: float = 1.0,
 ) -> float:
-    """Target BUY notional (in the quote/USD book unit), conviction-scaled.
+    """Target BUY notional (quote/USD), conviction-scaled.
 
-    The book unit is ``budget_usd`` (``LiveConfig.capital_budget_usd``). A
-    just-valid setup takes ``min_size_frac`` of it; strength (conviction x edge)
-    ramps that toward ``kelly_fraction`` of it. Volatility, regime, and data
-    quality only ever SHRINK the size. Returns 0.0 when the result is below the
-    exchange min-notional (caller treats 0 as "too small -> skip"), so a sub-min
-    sliver is never sent. The RiskGovernor independently re-validates per-trade
-    risk and exposure, so this is a proposal, not the final word.
+    A just-valid setup takes ``min_size_frac`` of ``budget_usd``; strength
+    (conviction x edge) ramps that toward ``kelly_fraction``. Volatility, regime,
+    and data-quality multipliers only reduce the size. Returns 0.0 when the
+    result is below the exchange minimum notional so a sub-minimum order is
+    never sent. The RiskGovernor validates per-trade risk and exposure
+    independently.
     """
     span = max(1e-9, sizing.conviction_full - sizing.conviction_floor)
     conviction_factor = _clamp((confidence - sizing.conviction_floor) / span, 0.0, 1.0)
     edge_factor = _clamp(expected_edge_bps / max(1e-9, sizing.edge_full_bps), 0.0, 1.0)
-    # Needs BOTH conviction and edge; either at zero -> floor size only.
+    # Both conviction and edge are required; either at zero yields floor size.
     strength = conviction_factor * edge_factor
     size_frac = sizing.min_size_frac + strength * (sizing.kelly_fraction - sizing.min_size_frac)
     size_frac = max(0.0, size_frac) * max(0.0, regime_mult) * max(0.0, quality_mult)
     notional = budget_usd * size_frac
-    # Volatility targeting: trim when the name is unusually volatile right now.
+    # Volatility targeting: trim size when current ATR% exceeds the target.
     if atr_pct and atr_pct > sizing.vol_target_pct:
         notional *= sizing.vol_target_pct / atr_pct
     ceiling = min(sizing.max_notional_usd, budget_usd)
@@ -51,11 +50,10 @@ def conviction_size(
 
 
 def maker_pullback_price(snapshot: MarketSnapshot, risk: RiskConfig) -> float:
-    """Maker-pullback BUY limit: rest BELOW the current bid so the order fills on
-    a normal dip as a maker (lower fees, better entry), never by chasing the ask.
-    Offset = entry_atr_mult * ATR(15m), clamped to [entry_min_offset_bps,
-    entry_max_offset_pct] of the bid. Shared by the deterministic StrategyAgent
-    and the hard-maker gate override so both price entries identically."""
+    """Maker-pullback BUY limit: rests below the current bid so the order fills
+    on a dip as a maker. Offset = entry_atr_mult * ATR, clamped to
+    [entry_min_offset_bps, entry_max_offset_pct] of the bid. Shared by the
+    StrategyAgent and the hard-maker gate override so both price identically."""
     bid = snapshot.bid_price
     atr_offset = risk.entry_atr_mult * (snapshot.atr or 0.0)
     min_offset = bid * risk.entry_min_offset_bps / 10_000
@@ -93,8 +91,8 @@ class RiskGovernor:
             reasons.append("kill switch is enabled")
 
         # Daily-loss circuit breaker: halt new entries once the day is down past
-        # the configured fraction of the book unit. A genuine risk event (breach),
-        # not a routine veto — see RISK_BREACH_REASON_MARKERS.
+        # the configured fraction of the budget. Recorded as a breach, not a
+        # routine veto (see RISK_BREACH_REASON_MARKERS).
         if risk.daily_loss_halt_pct > 0:
             daily_loss_limit = risk.daily_loss_halt_pct * config.live.capital_budget_usd
             if state.realized_pnl_today <= -daily_loss_limit:
@@ -145,10 +143,9 @@ class RiskGovernor:
         if proposal.expected_edge_bps < risk.min_expected_edge_bps:
             reasons.append("expected edge is below minimum")
 
-        # Worst-case loss is not stop_loss_pct alone: a limit stop on spot can
-        # fill worse than its price (slippage) and gap through it in a fast
-        # move. Pricing both in keeps the per-trade risk check honest instead of
-        # assuming a perfect exit at the stop.
+        # Worst-case loss is not stop_loss_pct alone: a limit stop can fill worse
+        # than its price (slippage) and gap through it in a fast move, so both are
+        # priced into the per-trade risk check.
         worst_case_loss_pct = (
             proposal.stop_loss_pct
             + risk.assumed_slippage_bps / 10_000

@@ -52,11 +52,9 @@ class MarketSnapshot:
 # but must never contribute to trade decisions.
 PLACEHOLDER_SOURCE_SUFFIX = "-placeholder"
 
-# Honest down-weighting: not all live sources are equally trustworthy. A primary
-# source (the exchange feed, the Binance skills hub) earns full weight; a degraded
-# fallback (broad web news, a coarse TVL/flow proxy) is real but noisier, so it is
-# weighted down instead of trusted equally or silently treated as a clean signal.
-# Quality in (0, 1]; placeholders are excluded entirely (quality 0).
+# Source quality in (0, 1]: primary sources (exchange feed, Binance skills hub)
+# earn full weight; degraded fallbacks (broad web news, coarse TVL/flow proxies)
+# are noisier and weighted down. Placeholders are excluded entirely (quality 0).
 _SOURCE_QUALITY: dict[str, float] = {
     "binance-compatible-feed": 1.0,
     "binance-skills-hub": 1.0,
@@ -316,7 +314,7 @@ class PositionReview:
     agent team reviews open risk FIRST, starting from a concrete recommended action
     rather than free-form. ``recommended_action`` is conservative (defaults to
     HOLD/KEEP and never loosens a stop); the team confirms or overrides it.
-    ``min_hold_satisfied`` reflects the anti-churn cooldown — a discretionary CLOSE
+    ``min_hold_satisfied`` reflects the anti-churn cooldown; a discretionary CLOSE
     is blocked while False (the deterministic stop still protects regardless).
     """
 

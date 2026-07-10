@@ -32,11 +32,9 @@ def classify_cycle(
     """Return (tier, reason). tier is FULL | REVIEW | SKIP."""
     if not cost.enabled:
         return FULL, "cost tiers disabled"
-    # A baseline proposal only justifies the expensive FULL cycle when it is a
-    # genuinely NEW entry — a proposal for a symbol we already hold is rejected as
-    # a duplicate by the gate, so spending FULL on it is pure waste. Likewise, a new
-    # entry only matters when there is capacity to take it (position cap + correlated
-    # budget); at capacity the gate would reject it, so we drop to a cheap REVIEW.
+    # A baseline proposal only justifies FULL when it is a new entry with capacity
+    # to take it (position cap + correlated budget): proposals for held symbols
+    # and at-capacity entries are rejected by the gate anyway.
     open_symbols = {str(view.get("symbol")) for view in open_views}
     new_entry_signals = [
         intent for intent in baseline_intents if getattr(intent, "symbol", None) not in open_symbols
@@ -46,16 +44,21 @@ def classify_cycle(
     if cost.full_on_first_cycle_of_day and is_first_cycle_of_day:
         return FULL, "first cycle of the UTC day"
 
+    # Open positions are exited mechanically (exit ladder + trailing stop), so
+    # bracket proximity or a moving PnL warrants only the news-sentry REVIEW;
+    # there is no bracket decision for the LLM to make. Without a quiet_model
+    # these branches degrade to SKIP.
+    sentry_tier = REVIEW if cost.quiet_model else SKIP
     for view in open_views:
         tp = _abs(view.get("to_take_profit_pct"))
         sl = _abs(view.get("to_stop_loss_pct"))
         pnl = _abs(view.get("unrealized_pnl_pct"))
         if tp is not None and tp <= cost.bracket_proximity_pct:
-            return FULL, f"{view.get('symbol')} within {cost.bracket_proximity_pct}% of take-profit"
+            return sentry_tier, f"{view.get('symbol')} within {cost.bracket_proximity_pct}% of take-profit"
         if sl is not None and sl <= cost.bracket_proximity_pct:
-            return FULL, f"{view.get('symbol')} within {cost.bracket_proximity_pct}% of stop"
+            return sentry_tier, f"{view.get('symbol')} within {cost.bracket_proximity_pct}% of stop"
         if pnl is not None and pnl >= cost.position_review_band_pct:
-            return FULL, f"{view.get('symbol')} unrealized PnL beyond +-{cost.position_review_band_pct}%"
+            return sentry_tier, f"{view.get('symbol')} unrealized PnL beyond +-{cost.position_review_band_pct}%"
 
     moved = _max_move_bps(snapshots, last_marks)
     if moved is not None and moved >= cost.material_move_bps:

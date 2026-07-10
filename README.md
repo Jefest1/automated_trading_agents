@@ -6,7 +6,7 @@ supervisor *deep agent* (the Portfolio Manager) makes the final
 resize anything before it reaches the exchange. Built on LangChain **deepagents**
 + **LangGraph** with a Claude Code-style REPL.
 
-The desk trades a coherent **hourly swing** style — it decides once per hour off
+The desk trades a coherent **hourly swing** style - it decides once per hour off
 1h/4h structure and holds winners for hours-to-days on a trailing exit ladder (it
 is *not* an intraday scalper). Execution modes: **testnet** (testnet.binance.vision)
 and **live** (api.binance.com / api.binance.us, multi-flag opt-in). Local paper
@@ -19,22 +19,22 @@ servers into the agents.
 
 ## How a cycle works
 
-1. **Account review first** — every cycle starts from the account state and the
+1. **Account review first** - every cycle starts from the account state and the
    **current date/time** (so news/search are anchored to today): balances, open
    positions, recent closed trades with per-trade realized PnL, the previous
    cycle, and a once-per-day **multi-timeframe brief** (compact 1M/1w/1d/4h/1h/15m
-   indicators — the static higher-timeframe context studied at the day open, then
+   indicators - the static higher-timeframe context studied at the day open, then
    relied on intra-day). Each open position is **marked to the live market**:
    current price, unrealized PnL (USD and %), distance to TP/SL, and age. The
    supervisor decides per symbol: BUY a new maker-pullback entry, or for an open
    position HOLD (WAIT) / SELL or CLOSE (exit via its order id) / ADJUST the
-   bracket — banking profit or cutting losses on live PnL, not only waiting for
+   bracket - banking profit or cutting losses on live PnL, not only waiting for
    the bracket. Before acting on an open order it resyncs against the exchange so
    its view matches live.
-2. **Reconcile** — open testnet/live orders are synced against the exchange
+2. **Reconcile** - open testnet/live orders are synced against the exchange
    (live status via `GET /api/v3/order`, fills via `GET /api/v3/myTrades`);
    TP/SL brackets are monitored and exits submitted when touched.
-3. **Research** — the supervisor dispatches market_research, news_research, and
+3. **Research** - the supervisor dispatches market_research, news_research, and
    onchain_research subagents (in parallel). Each has live market data tools
    (`get_price`, `get_orderbook_ticker`, `get_klines` with computed
    EMA/SMA/RSI/MACD/ATR/Bollinger indicators), Binance Skills Hub read-only
@@ -42,11 +42,11 @@ servers into the agents.
    links news_research shares). The deterministic signal agents fall back to
    free keyless live sources before any placeholder: GDELT last-24h news and
    DefiLlama chain-TVL flow (`utils/free_feeds.py`).
-4. **Decision** — the supervisor is the trader: after consulting **all six**
+4. **Decision** - the supervisor is the trader: after consulting **all six**
    subagents (research trio + strategy + risk_review + reporting) it emits a
    structured JSON decision per symbol: `BUY / SELL / WAIT / CLOSE / ADJUST`.
    Malformed or incomplete decisions degrade to WAIT.
-5. **Deterministic gates** — before any order leaves the system:
+5. **Deterministic gates** - before any order leaves the system:
    - pre-trade check: no duplicate positions, limit price within 2% of live
      market, and BUY limits must **rest at/below the bid** (a maker-pullback
      entry priced `min(llm_price, bid − risk.entry_atr_mult×ATR(1h))` so it never
@@ -56,29 +56,29 @@ servers into the agents.
      stale-data blocks, kill switch
    - exchange filters: price/quantity quantized to Binance tickSize/stepSize
      (prevents -1013 PRICE_FILTER rejections)
-6. **Execution + per-trade PnL** — approved decisions execute as exchange
+6. **Execution + per-trade PnL** - approved decisions execute as exchange
    limit orders. The order row is persisted as `PENDING_SUBMIT`
    **before** the exchange call, so a crash mid-submit leaves a client order id
    the reconciler can adopt or discard on restart (no orphaned positions).
    Realized PnL is computed **per round trip from actual fills including
    commissions** (BNB-denominated fees are converted at the current book price
    and flagged estimated), never from portfolio deltas.
-7. **Sleep** — default decision interval is **60 minutes** (configurable in
+7. **Sleep** - default decision interval is **60 minutes** (configurable in
    `config.json` or per-run with `/run --interval <seconds>`). Between cycles the
    fast bracket monitor manages open-position exits every ~60s, so a skipped cycle
    never leaves a position unmanaged.
 
 **Cost tiers** (`config.json` `cost.*`): the cheap deterministic prep runs every
-cycle, but the expensive LLM fan-out only fires when the cycle warrants it —
+cycle, but the expensive LLM fan-out only fires when the cycle warrants it  - 
 **FULL** (a new-entry signal, first cycle of the UTC day, a position near its
 bracket, or a material price move), **REVIEW** (cheap manage-only model for a quiet
-open position; requires `cost.quiet_model`), or **SKIP** (flat/quiet → deterministic
+open position; requires `cost.quiet_model`), or **SKIP** (flat/quiet -> deterministic
 WAIT, no LLM). See [docs/architecture.md §3](docs/architecture.md#3-cadence--cost-tiers).
 
 The current implementation is intentionally conservative:
 
 - Live trading requires an explicit multi-flag opt-in (see Execution modes).
-- Only the deterministic execution layer can place or cancel orders — the
+- Only the deterministic execution layer can place or cancel orders - the
   supervisor decides, the risk gate can veto, deterministic code executes.
 - Risk checks enforce symbol allowlists, stale-data blocks, open-position caps,
   third-position heuristic score, per-trade risk, kill switch, and full audit logging.
@@ -92,10 +92,10 @@ The current implementation is intentionally conservative:
   confidence model) lives in `config.json` `strategy.*` so it can be tuned and
   backtested instead of being hard-coded.
 - Placeholder evidence (emitted when a live source is unreachable) is excluded
-  from strategy scoring and hard-rejected by the RiskGovernor — synthesized
+  from strategy scoring and hard-rejected by the RiskGovernor - synthesized
   scores can never drive an order.
 - Models are provider-agnostic (OpenAI, Anthropic, Google, Ollama, OpenRouter, local
-  OpenAI-compatible servers) — swap with one env var.
+  OpenAI-compatible servers) - swap with one env var.
 
 This is software infrastructure, not financial advice.
 
@@ -166,7 +166,7 @@ uv run trading-agent --env-file .env mcp-check    # probe configured MCP servers
 ### Backtesting
 
 `trading-agent backtest` replays historical public klines through the
-deterministic pipeline (MarketDataAgent → StrategyAgent → RiskGovernor) with
+deterministic pipeline (MarketDataAgent -> StrategyAgent -> RiskGovernor) with
 the backtest fee/slippage model and reports realized PnL per symbol against two
 benchmarks: buy-and-hold and WAIT-always. Use it to evaluate threshold changes
 (`min_expected_edge_bps`, `min_confidence`, stops) on real history before
@@ -178,7 +178,7 @@ recorded (their limit price, quantity, and TP/SL bracket) through the same
 fill/fee/slippage model against the real price path that *followed* each
 decision, and reports realized PnL, win rate, per-symbol PnL, and a per-decision
 buy-and-hold comparison. The model is not re-invoked (its news/onchain context
-no longer exists) — the decision journal in the DB is the frozen context. This
+no longer exists) - the decision journal in the DB is the frozen context. This
 is how the live trader's decisions get validated:
 
 ```powershell
@@ -235,7 +235,7 @@ timeout, so one bad endpoint can't stall a cycle or hide the others; a
 `tool_allowlist` in `mcp_servers.json` trims the per-cycle schema footprint.
 Verify with
 `uv run trading-agent --env-file .env mcp-check`. Configure in
-`.trading_agent/mcp_servers.json` — see [docs/mcp.md](docs/mcp.md).
+`.trading_agent/mcp_servers.json` - see [docs/mcp.md](docs/mcp.md).
 
 By default the CLI stores state in `.trading_agent/agent.sqlite3` and configuration in `.trading_agent/config.json`.
 Use `--env-file .env.test` to validate the placeholder environment through `trading_agent.core.config.Settings` without loading it into process globals. Real API keys should be provided through your shell or an operator-managed secret path, not committed.
@@ -245,24 +245,24 @@ Use `--env-file .env.test` to validate the placeholder environment through `trad
 `decision_interval_minutes` sets the cycle cadence (default 60). Key `risk.*`
 knobs:
 
-- `min_confidence`, `min_expected_edge_bps` — decision thresholds.
+- `min_confidence`, `min_expected_edge_bps` - decision thresholds.
 - `max_open_positions`, `third_order_min_confidence`, `per_trade_risk_fraction`.
 - `stop_loss_pct`, `take_profit_pct`, `stale_data_seconds`.
-- `assumed_slippage_bps`, `stop_gap_buffer_pct` — per-trade risk sizing prices in
+- `assumed_slippage_bps`, `stop_gap_buffer_pct` - per-trade risk sizing prices in
   assumed slippage and an optional stop-gap buffer (a limit stop can fill worse
   than its price), not just the bare stop distance.
-- `atr_interval` (default `1h`) — the timeframe whose ATR sizes maker-pullback
+- `atr_interval` (default `1h`) - the timeframe whose ATR sizes maker-pullback
   entries, stops, and the runner trail (the swing horizon).
-- `stop_loss_pct` / `take_profit_pct` and `exits.*` — swing-width bracket: ~4%
+- `stop_loss_pct` / `take_profit_pct` and `exits.*` - swing-width bracket: ~4%
   initial stop, TP tiers at +3% / +6%, runner on an ATR(1h) trailing stop.
-- `entry_atr_mult`, `entry_min_offset_bps`, `entry_max_offset_pct` — maker-pullback
+- `entry_atr_mult`, `entry_min_offset_bps`, `entry_max_offset_pct` - maker-pullback
   entry sizing: applied limit = `min(llm_price, bid − entry_atr_mult×ATR(1h))`,
-  clamped to the [min_bps, max_pct] band — never chases, honors a deeper support bid.
-- `max_cross_spread_bps` — small tolerance for how far **above the bid** a BUY may
-  sit (absorbs research→gate drift); beyond it the order is refused as chasing.
-- `mark_refresh_seconds` — TTL for the live mark-to-market cache feeding
+  clamped to the [min_bps, max_pct] band - never chases, honors a deeper support bid.
+- `max_cross_spread_bps` - small tolerance for how far **above the bid** a BUY may
+  sit (absorbs research->gate drift); beyond it the order is refused as chasing.
+- `mark_refresh_seconds` - TTL for the live mark-to-market cache feeding
   unrealized PnL in `/orders`, `/balance`, and the loop heartbeat (default 300).
-- `require_evidence_refs` — when true, a supervisor BUY whose `evidence_refs`
+- `require_evidence_refs` - when true, a supervisor BUY whose `evidence_refs`
   resolve to no evidence gathered this cycle is rejected (no fabricated trails).
 
 `strategy.*` exposes the deterministic baseline's transfer function so it can be
@@ -306,9 +306,9 @@ Runtime environment validation lives in `src/trading_agent/core/config.py` as th
 
 Two environment files exist:
 
-- **`.env`** — operator environment: Spot Testnet execution + orders enabled,
+- **`.env`** - operator environment: Spot Testnet execution + orders enabled,
   LLM supervisor on, live data on, real (testnet) API keys. This is what you run with.
-- **`.env.test`** — hermetic placeholder environment used by the unit-test suite:
+- **`.env.test`** - hermetic placeholder environment used by the unit-test suite:
   no secrets. Do not put keys here.
 
 Key switches:
@@ -333,7 +333,7 @@ TRADING_AGENT_SUBAGENT_MODELS={"market_research":"azure_openai:gpt-5.4-nano"}
 | `testnet` | real orders on testnet.binance.vision | `TRADING_AGENT_ENABLE_TESTNET_ORDERS=true`, `BINANCE_VENUE=testnet`, keys |
 | `live` | **real money** on binance.com/binance.us | ALL of: `TRADING_AGENT_ENABLE_LIVE_ORDERS=true`, `BINANCE_VENUE=binance.com` or `binance.us`, keys, and config.json `live.enabled=true` + `live.venue_confirmed=true`. Autonomous cycle orders additionally need `live.auto_orders_within_caps=true`; otherwise only operator-confirmed `/chat` orders execute. |
 
-Market DATA always comes from the public production API regardless of mode —
+Market DATA always comes from the public production API regardless of mode  - 
 testnet tickers diverge from the real market. Order EXECUTION uses the
 mode-resolved base URL (`Settings.exchange_base_url()`).
 

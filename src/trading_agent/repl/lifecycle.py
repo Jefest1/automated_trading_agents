@@ -95,7 +95,7 @@ class AgentLifecycleManager:
         """Interruptible sleep honoring pause/stop. False means stop.
 
         If ``on_tick`` is given it is invoked roughly every ``tick_seconds`` while
-        sleeping — used to run the fast bracket monitor (TP/SL) between cycles so
+        sleeping; used to run the fast bracket monitor (TP/SL) between cycles so
         exits act within seconds rather than only at the next decision cycle.
         """
         remaining = seconds

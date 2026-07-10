@@ -7,7 +7,7 @@ supervised cycles and operator /chat sessions on the same thread id.
 aiosqlite connections are bound to the event loop that created them, and the
 REPL runs cycles and chat on different threads, each entering asyncio via
 asyncio.run(). The saver therefore MUST be opened per top-level async call
-(async with factory.open()) and never cached on the runtime — persistence
+(async with factory.open()) and never cached on the runtime; persistence
 comes from the file, not the object.
 """
 

@@ -59,7 +59,7 @@ def build_ops_tools(database_path: str | Path, settings: Settings) -> list[Any]:
     @tool
     def get_order_status(order_id: str) -> str:
         """Get one order's status. For testnet/live orders this queries the
-        exchange LIVE (GET /api/v3/order) — never trust a stale local row."""
+        exchange LIVE (GET /api/v3/order); never trust a stale local row."""
         with _open_store() as store:
             row = next((o for o in store.open_positions() if o.id == order_id), None)
             if row is None:

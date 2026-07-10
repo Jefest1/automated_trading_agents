@@ -255,7 +255,7 @@ class ExchangeReconcilerTest(unittest.TestCase):
 
     def test_pending_submit_adopts_live_order(self) -> None:
         # Crash between submit and DB save: the venue knows the client id, the
-        # local row is still PENDING_SUBMIT — the reconciler must adopt it.
+        # local row is still PENDING_SUBMIT; the reconciler must adopt it.
         order = testnet_order(
             status=OrderStatus.PENDING_SUBMIT,
             exchange_order_id=None,
@@ -385,6 +385,60 @@ class TieredRestingExitTest(unittest.TestCase):
         self.assertIsNotNone(plan.legs[0].exit_order_exchange_id)
         self.assertIsNotNone(plan.legs[1].exit_order_exchange_id)
 
+    def test_filled_leg_with_lost_binding_is_adopted_not_resold(self) -> None:
+        # Regression: a TP resting below market fills instantly; if the leg
+        # binding was lost (crash/exception before save), re-placing must ADOPT
+        # the terminal-FILLED order by its deterministic client id; never
+        # submit a duplicate sell.
+        order = self._tiered_order()
+        tier1_client_id = f"tx{order.id.replace('_', '')[:20]}t1"
+        self.adapter.orders[tier1_client_id] = {
+            "orderId": 7001, "status": "FILLED",
+            "executedQty": "0.4", "cummulativeQuoteQty": "40.6",
+        }
+        self.adapter.orders["7001"] = self.adapter.orders[tier1_client_id]
+        self.reconciler.reconcile({"BTCUSDT": snapshot("BTCUSDT", 100.5)})
+        # No duplicate SELL for tier 1: the only submitted sell is tier 2.
+        tier1_sells = [
+            s for s in self.adapter.submitted
+            if s["side"] == "SELL" and s.get("client_order_id") == tier1_client_id
+        ]
+        self.assertEqual(tier1_sells, [])
+        plan = self.store.open_positions()[0].exit_plan
+        leg1 = plan.legs[0]
+        self.assertEqual(leg1.exit_order_exchange_id, "7001")  # adopted
+        self.assertTrue(leg1.filled)  # fill ingested via sync, stop ratcheted
+        self.assertGreaterEqual(plan.current_stop_price, 100.0)  # breakeven after TP1
+
+    def test_partially_filled_canceled_leg_does_not_rearm_full_size(self) -> None:
+        # A terminal order WITH partial fills must not re-rest its full tier size
+        # (that would re-sell base already sold); it books what it got instead.
+        plan = build_exit_plan(
+            100.0, _intraday_exits(), fallback_take_profit_pct=0.015, fallback_stop_loss_pct=0.01
+        )
+        plan.legs[0].exit_order_exchange_id = "301"
+        plan.legs[0].exit_client_order_id = "cx301"
+        order = testnet_order(
+            status=OrderStatus.POSITION_OPEN, executed_qty=1.0, avg_fill_price=100.0, exit_plan=plan
+        )
+        self.store.save_order(order)
+        self.adapter.orders["42"] = {
+            "orderId": 42, "status": "FILLED", "executedQty": "1.0", "cummulativeQuoteQty": "100.0",
+        }
+        self.adapter.orders["301"] = {
+            "orderId": 301, "status": "CANCELED",
+            "executedQty": "0.2", "cummulativeQuoteQty": "20.3",
+        }
+        self.reconciler.reconcile({"BTCUSDT": snapshot("BTCUSDT", 100.5)})
+        reloaded_plan = self.store.open_positions()[0].exit_plan
+        leg1 = reloaded_plan.legs[0]
+        self.assertTrue(leg1.filled)  # booked with its partial, not rearmed
+        tier1_resells = [
+            s for s in self.adapter.submitted
+            if s["side"] == "SELL" and float(s["quantity"]) == 0.4
+        ]
+        self.assertEqual(tier1_resells, [])
+
     def test_resting_tier_fill_ratchets_stop_to_breakeven(self) -> None:
         plan = build_exit_plan(
             100.0, _intraday_exits(), fallback_take_profit_pct=0.015, fallback_stop_loss_pct=0.01
@@ -406,7 +460,7 @@ class TieredRestingExitTest(unittest.TestCase):
 
     def test_partial_tp_fill_realizes_positive_not_phantom_loss(self) -> None:
         # Regression: a partial TP1 scale-out (40% of the entry) must realize PnL
-        # on the SOLD portion only — NOT book the full entry cost against the
+        # on the SOLD portion only; NOT book the full entry cost against the
         # partial exit, which produced a large phantom loss (the -19 on live SOL).
         plan = build_exit_plan(
             100.0, _intraday_exits(), fallback_take_profit_pct=0.015, fallback_stop_loss_pct=0.01

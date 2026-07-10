@@ -27,11 +27,15 @@ def make_adapter(body: str, requests: list[Request]) -> BinanceSpotAdapter:
         requests.append(request)
         return FakeResponse(body)
 
-    return BinanceSpotAdapter(
+    adapter = BinanceSpotAdapter(
         base_url="https://testnet.binance.vision/api",
         settings=Settings(),
         urlopen=fake_urlopen,
     )
+    # Pin the venue clock offset so signed calls don't emit a /v3/time sync
+    # request first (these tests assert on the exact request sequence).
+    adapter._time_offset_ms = 0
+    return adapter
 
 
 CREDS = BinanceCredentials(api_key="key", api_secret="secret")

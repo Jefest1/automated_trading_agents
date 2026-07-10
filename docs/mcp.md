@@ -14,7 +14,7 @@ remote servers that the research subagents are **required** to use each cycle:
 | Server | URL | What it adds |
 |---|---|---|
 | `crypto_com_market_data` | `https://mcp.crypto.com/market-data/mcp` | Real-time prices, market trends, volume, top rankings, trending tokens (`get_ticker`, `get_tickers`, `get_candlestick`, `get_instruments`, `get_book`). Price/volume cross-check for the research trio. |
-| `fxmacrodata` | `https://fxmacrodata.com/mcp` | FX spot rates, central-bank policy rates, COT positioning, macro regime classifier/briefings — the macro context crypto reacts to. Mandatory macro read for `market_research`. |
+| `fxmacrodata` | `https://fxmacrodata.com/mcp` | FX spot rates, central-bank policy rates, COT positioning, macro regime classifier/briefings - the macro context crypto reacts to. Mandatory macro read for `market_research`. |
 
 A `tool_allowlist` in `mcp_servers.json` trims the handed-over tools to the ones
 actually used (the full schema set is ~20k tokens/research-agent/cycle).
@@ -57,7 +57,7 @@ If the file is missing, `default_mcp_servers()` applies (all disabled).
 
 Each enabled server is loaded **in isolation with a 20s timeout**, so one slow
 or broken endpoint cannot stall a trading cycle or blank out the tools from the
-healthy servers — its failure is logged and named, the rest still load. The
+healthy servers - its failure is logged and named, the rest still load. The
 adapter is `langchain-mcp-adapters` (`MultiServerMCPClient`).
 
 ## Safety filter
@@ -65,5 +65,5 @@ adapter is `langchain-mcp-adapters` (`MultiServerMCPClient`).
 Tool names matching order-execution fragments are blocked before they ever reach
 an agent (`submit_order`, `place_order`, `cancel_order`, `amend_order`,
 `execute_trade`, `open_position`, `close_position`, `binance_order`). Execution
-flows exclusively through the decision JSON → risk gate → deterministic execution
+flows exclusively through the decision JSON -> risk gate -> deterministic execution
 path; MCP tools are research-only.

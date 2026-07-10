@@ -1,6 +1,6 @@
 """Windows-safe log tailing: last-N lines and a follow generator.
 
-No fcntl/inotify — plain polling that tolerates RotatingFileHandler rotation
+No fcntl/inotify; plain polling that tolerates RotatingFileHandler rotation
 (file replaced or truncated mid-follow) by re-opening when the file shrinks
 or its identity changes.
 """
@@ -48,7 +48,7 @@ def follow(
 
     `should_stop` is checked every poll so callers (REPL/CLI) can break on
     Ctrl-C or shutdown without killing the thread. The starting position is
-    captured NOW (call time), not lazily at first iteration — tail semantics.
+    captured NOW (call time), not lazily at first iteration; tail semantics.
     """
     log_path = Path(path)
     position = log_path.stat().st_size if log_path.exists() else 0

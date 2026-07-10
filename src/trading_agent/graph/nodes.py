@@ -331,10 +331,9 @@ class CycleNodes:
                 minutes_since_review = None
         orders = open_orders if open_orders is not None else runtime.store.open_positions()
         open_views = [runtime._open_position_view(o) for o in orders]
-        # Capacity: a new-entry baseline signal only justifies the expensive FULL
-        # cycle when a slot is actually available (position cap + correlated-notional
-        # headroom). At capacity the entry would be gate-rejected anyway, so a holding
-        # cycle falls through to the cheap REVIEW instead of paying FULL to babysit.
+        # Capacity: a new-entry signal only justifies FULL when a slot is available
+        # (position cap + correlated-notional headroom). At capacity the entry
+        # would be gate-rejected, so the cycle falls through to REVIEW.
         risk = runtime.config.risk
         correlated_open = sum(
             (o.cumulative_quote_qty or (o.price * o.quantity)) for o in orders
@@ -392,9 +391,8 @@ class CycleNodes:
             tier = str(state.get("cycle_tier", "FULL"))
             context = runtime.cycle_context()
             context["quant_baseline"] = [asdict(intent) for intent in state.get("baseline_intents", [])]
-            # Manage open risk FIRST: per-order HOLD/ADJUST/CLOSE (positions) and
-            # KEEP/CANCEL (resting bids) recommendations the team confirms before any
-            # new entry. Present in BOTH tiers — review-first applies on every cycle.
+            # Per-order recommendations (HOLD/CLOSE for positions, KEEP/CANCEL for
+            # resting bids) reviewed before any new entry; present in both tiers.
             context["position_reviews"] = [
                 review.to_dict() for review in state.get("position_reviews", [])
             ]
@@ -507,12 +505,11 @@ class CycleNodes:
                 LOGGER.warning("decision parse issue run_id=%s: %s", run_id, problem)
                 errors.append(problem)
             if not decisions:
-                # The supervisor often produces a correct read but ends in prose with
-                # no JSON block (observed live: a valid pullback plan was thrown away).
-                # Rather than discard the analysis as all-WAIT, fall back to the
-                # deterministic demand-zone laddered proposals so a real, gated bid is
-                # still placed where the math found support. Symbols with no baseline
-                # zone still WAIT.
+                # The supervisor can produce a correct read but end in prose with no
+                # JSON block. Rather than discard the analysis as all-WAIT, fall back
+                # to the deterministic demand-zone laddered proposals so a real, gated
+                # bid is still placed where the math found support. Symbols with no
+                # baseline zone still WAIT.
                 fallback = decisions_from_intents(baseline) if baseline else []
                 if fallback:
                     LOGGER.info(
@@ -631,11 +628,9 @@ class CycleNodes:
                 if new_sl >= new_tp:
                     reasons.append(f"ADJUST rejected: stop loss {new_sl} must stay below take profit {new_tp}")
             elif decision.action in {DecisionAction.CLOSE, DecisionAction.SELL}:
-                # Anti-churn: a freshly opened FILLED long is not discretionarily
-                # closed by the agent team within the min-hold cooldown — hold for
-                # hours instead of re-litigating a still-valid position. The
-                # deterministic stop/exit-ladder (via exchange_sync, not this gate)
-                # still fires anytime, and an operator close bypasses this.
+                # Min-hold: the agent team cannot close a filled position within the
+                # cooldown. The exit ladder (via exchange_sync, not this gate) fires
+                # anytime, and operator closes bypass this.
                 if (
                     target.status == OrderStatus.POSITION_OPEN
                     and decision.source != "operator"
@@ -712,12 +707,9 @@ class CycleNodes:
                 "risk_decision", gate, {"symbol": decision.symbol, "approved": False, "reasons": reasons}
             )
 
-        # Hard maker discipline: keep the entry resting at/below the deterministic
-        # maker-pullback price so it can never chase/cross the spread — but HONOR a
-        # deeper bid the supervisor placed at charted support (the whole point of a
-        # swing pullback entry). So take the LOWER of the LLM price and the maker
-        # price: a chase (above the maker price) is pulled back; a support bid below
-        # it is preserved. The original LLM price is kept for audit.
+        # Hard maker discipline: take the lower of the LLM price and the
+        # maker-pullback price, so a chase is pulled back to the maker price while
+        # a deeper support bid is preserved. The original price is kept for audit.
         gate_snapshot = snapshots.get(intent.symbol)
         if (
             runtime.config.risk.hard_maker_entry
@@ -743,8 +735,8 @@ class CycleNodes:
         # Geometric edge: the edge that matters for a limit-at-support entry is the
         # distance from THIS entry to the target (resistance), not a sentiment score.
         # The supervisor's self-reported expected_edge_bps under-counts deep-support
-        # asymmetry (a 5R bid was once rejected for "26 bps"); recompute from the
-        # actual entry->target geometry and use the larger value for sizing + the gate.
+        # asymmetry; recompute from the actual entry->target geometry and use the
+        # larger value for sizing and the gate.
         entry_price = intent.limit_price
         if entry_price > 0:
             target_price = intent.target_price
@@ -753,17 +745,11 @@ class CycleNodes:
             geometric_edge_bps = (target_price - entry_price) / entry_price * 10_000
             if geometric_edge_bps > intent.expected_edge_bps:
                 intent.expected_edge_bps = round(geometric_edge_bps, 4)
-        # Conviction-scaled sizing: the deterministic sizer sets the position
-        # notional from conviction x edge (de-risked by volatility), overriding
-        # the LLM/baseline quantity. A marginal-but-valid setup takes a small
-        # real position instead of being frozen out; a sub-min size returns 0 and
-        # the BUY is rejected as too small rather than sending an unfillable dust
-        # order. The suggested quantity is kept for audit. Mirrors the maker-price
-        # override above so both price and size are deterministic.
-        # Binding risk_review lever: the pre-mortem can shrink (or veto) the trade
-        # via its consultation's size_multiplier, so it is an active desk member,
-        # not just a commentator. The tightest multiplier across risk_review
-        # consultations wins; 0 vetoes outright.
+        # Conviction-scaled sizing overrides the LLM/baseline quantity so both
+        # price and size are deterministic; a sub-minimum size rejects the BUY
+        # instead of sending an unfillable order. The suggested quantity is kept
+        # for audit. risk_review's size_multiplier is binding: the tightest
+        # multiplier across its consultations wins, and 0 vetoes outright.
         risk_review_mult = 1.0
         for consultation in decision.consultations:
             if consultation.agent == "risk_review":
@@ -778,9 +764,8 @@ class CycleNodes:
             )
             reject(reasons, "risk_review")
             return None
-        # Data-quality haircut: if this symbol's live evidence is dominated by
-        # degraded fallback sources (web news, coarse proxies) rather than primary
-        # ones, shrink the size — the desk can't paper over a half-dead feed.
+        # Data-quality haircut: evidence dominated by degraded fallback sources
+        # (web news, coarse proxies) shrinks the size proportionally.
         symbol_live_evidence = [
             record
             for record in evidence_by_id.values()
@@ -893,9 +878,8 @@ class CycleNodes:
             reject(reasons, "evidence_binding")
             return None
 
-        # Zone-anchored bids may rest well below market (the next demand zone); an
-        # un-anchored bid keeps the old tight leash. This is what lets the desk bid
-        # the real support 3-6% down instead of being capped at 2%.
+        # Zone-anchored bids may rest well below market (the next demand zone,
+        # typically 3-6% down); an un-anchored bid keeps the tight leash.
         risk_cfg = runtime.config.risk
         if risk_cfg.require_zone_anchored_bids and self._is_zone_anchored(
             intent, level_maps.get(intent.symbol)
@@ -1264,7 +1248,7 @@ class CycleNodes:
         return {"result": asdict(result)}
 
     # ------------------------------------------------------------------ #
-    # shared helpers (moved from the old runtime monolith)
+    # shared helpers
 
     def _record_token_usage(
         self, run_id: str, cycle: int, usage_by_model: dict[str, Any]

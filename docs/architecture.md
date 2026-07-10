@@ -5,7 +5,7 @@ supervisor *deep agent* acts as the Portfolio Manager and makes the final
 `BUY / SELL / WAIT / CLOSE / ADJUST` call, and a **deterministic risk gate** can
 veto or resize anything before it reaches the exchange.
 
-The desk trades a coherent **hourly swing** style — it decides once per hour off
+The desk trades a coherent **hourly swing** style - it decides once per hour off
 1h/4h structure and holds winners for hours-to-days on a trailing exit ladder. It
 is *not* an intraday scalper; cadence, stop width, targets, and prompts are all
 aligned to that style (see [Cadence & cost tiers](#cadence--cost-tiers) and
@@ -76,13 +76,13 @@ Module layout (`src/trading_agent/graph/`):
 | Module | Responsibility |
 |---|---|
 | `state.py` | `RuntimeGraphState`, `AgentRunResult` |
-| `nodes.py` | `CycleNodes` — node implementations bound to runtime services |
+| `nodes.py` | `CycleNodes` - node implementations bound to runtime services |
 | `edges.py` | wiring + conditional routers |
-| `cadence.py` | `classify_cycle` — FULL / REVIEW / SKIP cost tier (pure) |
-| `compile.py` | `build_cycle_graph` (compiled **without** a checkpointer — see §7) |
+| `cadence.py` | `classify_cycle` - FULL / REVIEW / SKIP cost tier (pure) |
+| `compile.py` | `build_cycle_graph` (compiled **without** a checkpointer - see §7) |
 | `deep_agent.py` | supervisor/subagent construction, skills, mode-aware prompts |
 | `streaming.py` | sync/async stream handling, observability events |
-| `checkpointer.py` | `CheckpointerFactory` → `<HOME>/checkpoints.sqlite3` |
+| `checkpointer.py` | `CheckpointerFactory` -> `<HOME>/checkpoints.sqlite3` |
 | `runtime.py` | `SupervisorRuntime` facade: wiring, `arun_once`, `achat`, `aintroduce` |
 
 ---
@@ -100,7 +100,7 @@ flowchart TD
 
     CL -->|SKIP| PD
     CL -->|"FULL / REVIEW"| CA["consult_agents<br/>supervisor deep-agent invocation"]
-    CA --> PD["parse_decision<br/>validate SupervisorDecision JSON<br/>malformed → WAIT"]
+    CA --> PD["parse_decision<br/>validate SupervisorDecision JSON<br/>malformed -> WAIT"]
 
     PD -->|all WAIT| RPT
     PD -->|actionable| RGATE{"risk_gate<br/>blockers + RiskGovernor"}
@@ -117,13 +117,13 @@ flowchart TD
     class CL,RGATE,PD gate;
 ```
 
-- **`prepare_context`** is fully deterministic and cheap — it runs *every* cycle:
+- **`prepare_context`** is fully deterministic and cheap - it runs *every* cycle:
   live snapshots, exchange reconcile, the three deterministic signal agents
   (`MarketDataAgent` / `NewsSentimentAgent` / `OnChainFlowAgent`), and the
   `StrategyAgent` quant baseline that proposes candidate entries.
 - **`consult_agents`** is the only expensive step (the deep-agent fan-out). A
   `SKIP` tier bypasses it entirely and emits a deterministic WAIT.
-- **`risk_gate`** and **`execute`** are deterministic — the LLM can never place an
+- **`risk_gate`** and **`execute`** are deterministic - the LLM can never place an
   order directly. A parse/validation failure degrades every symbol to WAIT.
 
 With `TRADING_AGENT_ENABLE_LLM_SUPERVISOR=false` the deterministic StrategyAgent
@@ -141,16 +141,16 @@ unmanaged.
 
 ```mermaid
 flowchart TD
-    A{"deterministic baseline<br/>proposes a NEW entry?"} -->|yes| FULL
+    A{"deterministic baseline proposes a NEW entry<br/>AND a slot is free (cap + correlation)?"} -->|yes| FULL
     A -->|no| B{"first cycle<br/>of the UTC day?"}
     B -->|yes| FULL
     B -->|no| C{"open position near<br/>TP/SL or outside PnL band?"}
-    C -->|yes| FULL
+    C -->|yes| REVIEW
     C -->|no| D{"price moved ≥<br/>material_move_bps?"}
     D -->|yes| FULL["FULL<br/>full model + all subagents<br/>+ bull/bear debate + MCP"]
     D -->|no| E{"holding & quiet_model set<br/>past review interval?"}
-    E -->|yes| REVIEW["REVIEW<br/>cheap model · manage-only<br/>strategy/risk/reporting · no debate"]
-    E -->|no| SKIP["SKIP<br/>no LLM → deterministic WAIT"]
+    E -->|yes| REVIEW["REVIEW · news sentry<br/>cheap model · news_research only<br/>critical-catalyst check on held symbols"]
+    E -->|no| SKIP["SKIP<br/>no LLM -> deterministic WAIT"]
 
     classDef full fill:#065f46,stroke:#064e3b,color:#fff;
     classDef review fill:#1e3a8a,stroke:#1e40af,color:#fff;
@@ -163,20 +163,27 @@ flowchart TD
 Knobs live in `config.json` `cost.*` (`CostConfig`): `material_move_bps`,
 `position_review_band_pct`, `bracket_proximity_pct`, `review_interval_minutes`,
 `full_on_first_cycle_of_day`, and `quiet_model`. **`REVIEW` requires a
-`quiet_model`**; with it unset the tiering is effectively FULL-or-SKIP.
+`quiet_model`**; with it unset those branches degrade to SKIP (FULL-or-SKIP).
+
+Open positions are **no-touch**: exits are fully mechanical (tiered ladder +
+trailing stop), so bracket proximity / a moving PnL only triggers the cheap
+**news sentry** REVIEW - the `news_research` agent alone checks held symbols for
+a critical adverse catalyst (hack, delisting, enforcement, insolvency) and may
+CLOSE only then. Resting demand-zone bids work until filled or the ~3-day
+`bid_ttl_minutes` expires.
 
 ---
 
 ## 4. The deep-agent desk (fan-out)
 
 On a FULL cycle the supervisor runs the full professional workflow: parallel
-research → adversarial debate → strategy synthesis → risk pre-mortem → reporting,
-then emits the decision. Models are routed per role — cheap on the pure scorers,
+research -> adversarial debate -> strategy synthesis -> risk pre-mortem -> reporting,
+then emits the decision. Models are routed per role - cheap on the pure scorers,
 full on the judgment seats.
 
 ```mermaid
 flowchart TD
-    SUP["🧑‍💼 supervisor (PM)<br/>full model · decides BUY/WAIT/CLOSE/ADJUST"]
+    SUP["supervisor (PM)<br/>full model · decides BUY/WAIT/CLOSE/ADJUST"]
 
     subgraph RESEARCH["1 · Research fan-out (parallel)"]
         MR["market_research<br/>1h/4h structure · ATR(1h)"]
@@ -227,7 +234,7 @@ Subagents inherit the supervisor model unless overridden via
 `config.json` `model.subagent_models` (or env `TRADING_AGENT_SUBAGENT_MODELS`),
 e.g. `{"market_research": "azure_openai:gpt-5.4-nano"}`. The runtime builds a
 **model instance** per distinct identifier (not a bare `provider:model` string)
-and **shares one client across subagents on the same deployment** — instances are
+and **shares one client across subagents on the same deployment** - instances are
 required for Azure (whose endpoint/api-version come from `Settings`, not the env
 var LangChain's string resolver expects), and sharing keeps the per-cycle async
 client count low (see §8). Unknown agent names are ignored with a warning.
@@ -240,14 +247,14 @@ The supervisor ends each cycle (and any actionable `/chat` reply) with a fenced
 ```json``` block matching `core/decision.py::SupervisorDecision`:
 
 - **`BUY`** requires `limit_price`, `quantity`, and **consultations from all six
-  required subagents** — otherwise rejected and treated as WAIT.
+  required subagents** - otherwise rejected and treated as WAIT.
 - **`CLOSE` / `SELL` / `ADJUST`** require the open order's `target_order_id`.
 - **`evidence_refs`** must cite real evidence ids gathered this cycle (surfaced as
   `evidence_available` in the cycle context). A BUY citing ids that resolve to
-  nothing is rejected (`require_evidence_refs`, default on) — this stops the LLM
+  nothing is rejected (`require_evidence_refs`, default on) - this stops the LLM
   from fabricating its consultation trail. Operator `/chat` BUYs are bound to
   freshly gathered deterministic evidence before gating.
-- **Parse/validation failure → WAIT** for every symbol. The LLM can never bypass
+- **Parse/validation failure -> WAIT** for every symbol. The LLM can never bypass
   the gate with malformed output.
 - Every decision is persisted to `supervisor_decisions` with its gate outcome and
   executed order id.
@@ -280,13 +287,13 @@ flowchart TD
   applied price is `min(llm_price, maker_pullback_price)` where
   `maker_pullback_price = bid − entry_atr_mult·ATR(1h)` (clamped to the
   `[entry_min_offset_bps, entry_max_offset_pct]` band). A chase above the maker
-  price is pulled back; a **deeper bid at charted support is honored** — the whole
+  price is pulled back; a **deeper bid at charted support is honored** - the whole
   point of a swing pullback entry.
 - **Conviction-scaled sizing** (`core/risk.py::conviction_size`,
   `SizingConfig`): notional scales with `conviction × edge`, de-risked by current
   volatility (ATR%), the macro regime, data quality, and the **binding
   `risk_review` `size_multiplier`** (`0` = veto). Below the exchange minimum it
-  returns 0 → reject as too small. The same sizer feeds the deterministic
+  returns 0 -> reject as too small. The same sizer feeds the deterministic
   baseline so both paths size identically.
 - **Portfolio circuit breakers** (`RiskConfig`): `max_correlated_notional_usd`
   (BTC/ETH/SOL/BNB are one beta bet), `daily_loss_halt_pct` (halts new BUYs once
@@ -310,28 +317,32 @@ stateDiagram-v2
     PENDING_SUBMIT --> CANCELED: submit failed (grace elapsed)
     ENTRY_OPEN --> POSITION_OPEN: entry FILLED
     ENTRY_OPEN --> CANCELED: unfilled & terminal (canceled/expired)
-    POSITION_OPEN --> POSITION_OPEN: TP1/TP2 resting fills → ratchet stop up
+    POSITION_OPEN --> POSITION_OPEN: TP1/TP2/TP3 resting fills -> ratchet stop up
     POSITION_OPEN --> CLOSED: all tiers filled
     POSITION_OPEN --> CLOSED: trailing/breakeven stop hit
-    POSITION_OPEN --> CLOSED: operator/agent CLOSE
+    POSITION_OPEN --> CLOSED: operator CLOSE / news-sentry critical catalyst
     CLOSED --> [*]
     CANCELED --> [*]
 ```
 
 - **Swing-width bracket** (`ExitConfig`, `RiskConfig`): ~4% initial stop, TP tiers
-  at +3% / +6% (scale out 40% / 30%), runner rides the rest on a trailing stop
-  (`trail_atr_mult`·ATR(1h)). After TP1 the stop moves to breakeven; after TP2 it
-  locks to the prior tier. The stop **only ever moves up**.
+  at +3% / +6% / +10% (scale out 40% / 30% / 15%), the ~15% runner rides a
+  trailing stop (`trail_atr_mult`·ATR(1h)). After TP1 the stop moves to breakeven;
+  each later tier locks the stop to the tier below it (TP3 locks +6%). The stop
+  **only ever moves up**. Positions are otherwise **no-touch** - exits were
+  decided at entry; only a critical news catalyst (news sentry) may close early.
 - **Real resting take-profits**: TP tiers are placed as actual LIMIT SELL orders
-  so the venue fills them the instant price touches — no polling gap. A stop-out
-  cancels the resting tiers and market-sells the remainder.
+  so the venue fills them the instant price touches - no polling gap. A stop-out
+  cancels the resting tiers and market-sells the remainder. A tier whose prior
+  order (deterministic per-tier client id) is already FILLED is **adopted, never
+  re-submitted** - duplicate sells cannot stack even if a binding is lost.
 - **Crash-safe**: the order row is persisted as `PENDING_SUBMIT` *before* the
   exchange call, so a crash mid-submit leaves a `client_order_id` the reconciler
   adopts or discards on restart (no orphaned positions).
 - **Per-trade PnL** (`core/pnl.py`): realized PnL is computed per round trip from
   **actual fills including commissions** (quote-asset fees exact; base-asset fees
   valued at fill price; BNB-discount fees converted at book price and flagged
-  estimated) — never from portfolio deltas. Every final close also writes a
+  estimated) - never from portfolio deltas. Every final close also writes a
   deterministic **reflection** (outcome, R-multiple, exit reason, hold time) that
   later cycles read back via `recent_reflections` + `trade_stats`.
 
@@ -342,7 +353,7 @@ stateDiagram-v2
 The REPL drives async work from sync entry points (`run_once`, `chat`) on a
 couple of threads. Using `asyncio.run` per call creates **and closes** a fresh
 event loop each time, so httpx async clients (LLM + MCP) get garbage-collected on
-a dead loop → `RuntimeError: Event loop is closed` spam. The runtime instead uses
+a dead loop -> `RuntimeError: Event loop is closed` spam. The runtime instead uses
 a **persistent per-thread loop** (`utils/aioloop.py::run_coro_blocking`), wired
 into both `runtime._run_sync` and `mcp_tools.load_tools_sync` (the two
 `asyncio.run` sites). The loop stays open for the thread's lifetime, so client
@@ -352,13 +363,13 @@ cleanup never targets a closed loop.
 flowchart LR
     subgraph OLD["asyncio.run per call (noisy)"]
         direction TB
-        C1["cycle N"] --> L1["new loop"] --> X1["loop.close() ❌<br/>clients GC'd on dead loop"]
+        C1["cycle N"] --> L1["new loop"] --> X1["loop.close() <br/>clients GC'd on dead loop"]
     end
     subgraph NEW["persistent per-thread loop"]
         direction TB
         C2["cycle N"] --> L2["thread loop<br/>(reused, stays open)"]
         C3["cycle N+1"] --> L2
-        L2 --> OKK["cleanup runs on a live loop ✅"]
+        L2 --> OKK["cleanup runs on a live loop "]
     end
 
     classDef bad fill:#7c2d12,stroke:#7c2d12,color:#fff;
@@ -378,7 +389,7 @@ flowchart LR
 - **Conversation memory** (supervisor + subagents + `/chat`) lives in
   `<HOME>/checkpoints.sqlite3` via LangGraph `AsyncSqliteSaver`, opened *per
   top-level async call* (aiosqlite connections are loop-bound). The **outer cycle
-  graph is compiled without a checkpointer** — each run is a fresh pipeline whose
+  graph is compiled without a checkpointer** - each run is a fresh pipeline whose
   state holds live Python objects; sharing one checkpointer thread between the
   outer graph and the nested deep agent corrupts both.
 - **Operator state** (orders, fills, evidence, decisions, reflections, settings)
@@ -390,7 +401,7 @@ flowchart LR
 
 Agents get `get_price`, `get_orderbook_ticker`, and `get_klines` (OHLCV +
 EMA/SMA/RSI/MACD/ATR/Bollinger) from `utils/market_data.py`. These **always hit
-the production public API** — testnet tickers diverge from the real market, which
+the production public API** - testnet tickers diverge from the real market, which
 previously caused agents to quote prices that did not match the charts. Prompts
 forbid price claims from news, memory, or narrative. ATR for entry/stop sizing is
 taken on `risk.atr_interval` (**1h**, the swing horizon). Order *execution* uses
@@ -410,7 +421,7 @@ primary source (exchange feed, Binance skills hub) earns full weight; a degraded
 fallback (broad web news, coarse TVL proxy) is real but weighted down
 (`quality < 1.0`) in `StrategyAgent` scoring and feeds a data-quality haircut into
 `conviction_size`. **Placeholders** (synthesized when a live source is down) are
-fully excluded (`quality == 0`) and hard-rejected by the RiskGovernor — synthetic
+fully excluded (`quality == 0`) and hard-rejected by the RiskGovernor - synthetic
 scores can never drive an order. On-chain BSC leaderboards are framed as
 attention/narrative, not spot flow.
 
@@ -454,8 +465,8 @@ sample (`LiveConfig.promotion_min_closed_trades`).
 ## 15. Validation: deterministic & LLM backtests
 
 - **`backtest.py`** replays historical klines through the deterministic pipeline
-  (MarketDataAgent → StrategyAgent → RiskGovernor) vs buy-and-hold / WAIT-always.
+  (MarketDataAgent -> StrategyAgent -> RiskGovernor) vs buy-and-hold / WAIT-always.
 - **`decision_replay.py`** (`backtest-decisions`) replays the supervisor's
   **recorded** BUY decisions through the shared fill/fee/slippage model against the
-  real forward price path — the only way the LLM trader's decisions get scored.
+  real forward price path - the only way the LLM trader's decisions get scored.
   Both share the trade simulator so they are apples-to-apples.

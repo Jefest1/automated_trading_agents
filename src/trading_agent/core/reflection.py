@@ -68,7 +68,7 @@ def build_reflection(order: OrderRecord) -> Reflection:
     reason = order.exit_reason or order.closed_by or "closed"
     r_text = f"{r_multiple:+.2f}R " if r_multiple is not None else ""
     held_text = f"after {held:.0f}m " if held is not None else ""
-    lesson = f"{order.symbol} closed {r_text}({pnl:+.2f}) via {reason} {held_text}— {outcome}."
+    lesson = f"{order.symbol} closed {r_text}({pnl:+.2f}) via {reason} {held_text}- {outcome}."
     return Reflection(
         symbol=order.symbol,
         outcome=outcome,

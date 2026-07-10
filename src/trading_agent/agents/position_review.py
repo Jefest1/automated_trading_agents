@@ -2,7 +2,7 @@
 entry baseline (agents/strategy.py).
 
 Each cycle, BEFORE any new-entry research, the desk reviews open risk first. This
-agent turns every open order — a filled position or a resting (unfilled) bid — into
+agent turns every open order; a filled position or a resting (unfilled) bid; into
 a conservative recommended action the LLM team then confirms or overrides:
 
 - filled position  -> HOLD by default (the tiered exit ladder owns the stop); flag
@@ -11,7 +11,7 @@ a conservative recommended action the LLM team then confirms or overrides:
 - resting bid      -> KEEP while within its TTL; flag CANCEL_CANDIDATE if the regime
   flipped against the bid's bullish thesis.
 
-It never proposes loosening a stop and never forces an exit — the deterministic
+It never proposes loosening a stop and never forces an exit; the deterministic
 stop-loss/exit-ladder protects downside regardless, and the bid TTL is the backstop
 for unfilled bids.
 """
@@ -23,7 +23,6 @@ from datetime import UTC, datetime
 from trading_agent.core.config import AppConfig
 from trading_agent.core.models import (
     REVIEW_CANCEL_CANDIDATE,
-    REVIEW_CLOSE_CANDIDATE,
     REVIEW_HOLD,
     REVIEW_KEEP,
     LevelMap,
@@ -123,21 +122,17 @@ class PositionReviewAgent:
             if regime == "downtrend":
                 return (
                     REVIEW_CANCEL_CANDIDATE,
-                    "regime flipped to downtrend; the bid's bullish thesis is gone — consider cancel",
+                    "regime flipped to downtrend; the bid's bullish thesis is gone; consider cancel",
                 )
             return (REVIEW_KEEP, "resting bid still valid; keep working until filled or TTL")
 
-        # Filled position: the tiered exit ladder owns the stop and trails it up, so
-        # the default is to let it run. Only flag a discretionary close on a real
-        # deterministic deterioration, and only once the min-hold cooldown has passed.
+        # Filled positions are no-touch: the exit ladder owns TP/SL/trailing, and
+        # the only override is a critical news catalyst evaluated by the news
+        # sentry. The recommendation is therefore always HOLD, annotated so the
+        # sentry knows which symbols to watch first.
         if regime == "downtrend" and (unrealized_pct is not None and unrealized_pct < 0):
-            if min_hold_satisfied:
-                return (
-                    REVIEW_CLOSE_CANDIDATE,
-                    "confirmed downtrend and position underwater past min-hold — team to confirm exit vs hold",
-                )
             return (
                 REVIEW_HOLD,
-                "downtrend and underwater but within min-hold cooldown; hold (stop still protects)",
+                "downtrend and underwater; no-touch policy: the stop protects; news sentry should watch this symbol closely",
             )
-        return (REVIEW_HOLD, "thesis intact; let the exit ladder manage TP/SL")
+        return (REVIEW_HOLD, "no-touch: exit ladder manages TP/SL; news sentry watches for critical catalysts")

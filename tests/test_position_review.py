@@ -7,7 +7,7 @@ from trading_agent.agents.position_review import PositionReviewAgent
 from trading_agent.core.config import AppConfig
 from trading_agent.core.models import (
     REVIEW_CANCEL_CANDIDATE,
-    REVIEW_CLOSE_CANDIDATE,
+
     REVIEW_HOLD,
     REVIEW_KEEP,
     LevelMap,
@@ -70,10 +70,14 @@ class PositionReviewTest(unittest.TestCase):
         self.assertEqual(r.recommended_action, REVIEW_HOLD)
         self.assertTrue(r.min_hold_satisfied)
 
-    def test_downtrend_underwater_past_min_hold_flags_close(self) -> None:
+    def test_downtrend_underwater_position_still_holds_no_touch(self) -> None:
+        # No-touch policy: even a downtrending, underwater position is HELD (the
+        # stop protects; only a critical news catalyst may close it); but the
+        # reason flags it for the news sentry's attention.
         order = _position(entry=100.0, age_hours=10.0)
         r = self._review_one(order, price=95.0, regime="downtrend")
-        self.assertEqual(r.recommended_action, REVIEW_CLOSE_CANDIDATE)
+        self.assertEqual(r.recommended_action, REVIEW_HOLD)
+        self.assertIn("news sentry", r.reason)
         self.assertLess(r.unrealized_pnl_pct, 0)
 
     def test_downtrend_underwater_within_min_hold_holds(self) -> None:

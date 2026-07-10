@@ -16,7 +16,7 @@ class ToolCallLogger(BaseCallbackHandler):
     """Logs every tool invocation by name across the supervisor and all
     subagents. Callbacks propagate into nested subgraphs and fire in both the
     streaming and non-streaming paths, so this is the reliable way to see which
-    tools (built-in vs attached MCP servers) the agents actually call — the
+    tools (built-in vs attached MCP servers) the agents actually call; the
     deepagents subagent namespaces do not carry the subagent name into stream
     chunks, so stream-based attribution alone is unreliable."""
 
@@ -56,8 +56,8 @@ def stream_deep_agent(
     from "values" chunks: the root graph emits its full state after every
     superstep, and the last one is exactly what ``invoke`` would return.
     Deriving it from "updates" deltas or ``get_state`` is unreliable here
-    (nested invocation shares the checkpointer and thread), which previously
-    surfaced as empty supervisor responses.
+    (nested invocation shares the checkpointer and thread) and surfaces as
+    empty supervisor responses.
     """
     final_state: Any = None
     supervisor_message = ""

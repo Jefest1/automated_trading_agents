@@ -7,7 +7,7 @@ the BUY decisions the supervisor actually recorded (with their limit price,
 quantity, and bracket) and replays each through the same fill/TP/SL/fee model as
 the backtester, against the real price path that followed the decision.
 
-It does not re-invoke the model (its news/onchain context no longer exists) — it
+It does not re-invoke the model (its news/onchain context no longer exists); it
 scores the decisions that were genuinely made. The decision journal in the DB is
 the frozen context; this turns it into realized PnL, win rate, and a per-decision
 buy-and-hold comparison so the LLM trader can finally be evaluated.

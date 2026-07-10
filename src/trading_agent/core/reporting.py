@@ -68,8 +68,8 @@ def promotion_report(
     # still-open positions (both are locked-in cash).
     realized_total = round(realized_closed + realized_banked_open, 8)
 
-    # Net PnL must clear realized fees AND the LLM cost of running the desk —
-    # a strategy whose edge is smaller than its own token bill is not promotable.
+    # Net PnL must clear realized fees plus cumulative LLM cost; an edge smaller
+    # than its own token bill is not promotable.
     llm_cost = store.get_setting("token_usage_cumulative", None) or {}
     llm_cost_usd = round(float(llm_cost.get("cost_usd", 0.0) or 0.0), 8)
     net_pnl_after_costs = round(realized_total - llm_cost_usd, 8)
@@ -77,8 +77,8 @@ def promotion_report(
     min_trades = config.live.promotion_min_closed_trades
 
     positive_pnl = net_pnl_after_costs > 0
-    # Real risk-control breaches only (kill switch, daily-loss halt, misconfig) —
-    # NOT routine vetoes (confidence/edge/cap), which are the gate working.
+    # Counts risk-control breaches only (kill switch, daily-loss halt, misconfig),
+    # not routine vetoes on confidence/edge/caps.
     no_risk_breaches = summary["risk_breaches"] == 0
     enough_trades = closed_count >= min_trades
     return {
@@ -186,9 +186,8 @@ def report_markdown(store: Store, config: AppConfig, *, prices: dict[str, float]
             f"- Evidence records: {summary['evidence_count']}",
             f"- Trade proposals: {summary['proposals_count']}",
             f"- Open positions: {summary['open_positions']}",
-            # Vetoes are the gate WORKING (declining marginal trades) — expected.
-            # Breaches are genuine control events (kill switch, daily-loss halt,
-            # misconfig) — these are what the promotion gate cares about.
+            # Vetoes are routine gate declines; breaches are control events (kill
+            # switch, daily-loss halt, misconfig) that the promotion gate counts.
             f"- Gate vetoes (healthy, marginal trades declined): {summary.get('vetoes', 0)}",
             f"- Risk-control breaches (alarming): {summary['risk_breaches']}",
             f"- Order counts: `{summary['order_counts']}`",

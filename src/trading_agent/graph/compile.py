@@ -4,7 +4,7 @@ The cycle graph is compiled WITHOUT a checkpointer on purpose: every run is a
 fresh deterministic pipeline, and its state holds live Python objects
 (snapshots, tool handles) that must never be serialized. Conversation memory
 lives in the deep agent, which gets the persistent SQLite checkpointer (see
-checkpointer.py) under the operator's thread id — sharing one checkpointer
+checkpointer.py) under the operator's thread id; sharing one checkpointer
 thread between the outer graph and the nested deep agent corrupts both.
 """
 

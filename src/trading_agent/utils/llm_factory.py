@@ -60,7 +60,7 @@ def create_model(settings: Settings, *, identifier_override: str | None = None) 
     the same for Ollama. Azure OpenAI uses its deployment-aware endpoint fields.
 
     ``identifier_override`` ("model" or "provider:model") builds a different
-    model on the same account — used for the cheaper REVIEW-tier model. When the
+    model on the same account; used for the cheaper REVIEW-tier model. When the
     override names a different provider, that provider is honored but the active
     provider's key/base_url are reused (so keep the quiet model on the same
     provider unless you have set up the other provider's credentials).
@@ -88,6 +88,9 @@ def create_model(settings: Settings, *, identifier_override: str | None = None) 
             azure_endpoint=settings.azure_openai_endpoint,
             api_key=api_key,
             api_version=settings.azure_openai_api_version,
+            # Parallel subagent fan-out can transiently exhaust the tokens-per-min
+            # quota; retry 429s with backoff instead of failing the cycle.
+            max_retries=6,
             # The deep-agent stack (skills/files seeded into state) sends
             # file-content blocks. Azure Chat Completions rejects those
             # ("does not support file URLs"); the Responses API accepts them and
@@ -109,4 +112,7 @@ def create_model(settings: Settings, *, identifier_override: str | None = None) 
         # asked; the cycle streams for observability, so without this the
         # per-cycle token/cost accounting sees zero tokens.
         kwargs["stream_usage"] = True
+        # Parallel subagent fan-out can transiently exhaust the tokens-per-min
+        # quota; retry 429s with backoff instead of failing the cycle.
+        kwargs["max_retries"] = 6
     return init_chat_model(name, model_provider=provider, **kwargs)

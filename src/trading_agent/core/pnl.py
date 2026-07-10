@@ -150,7 +150,7 @@ def realized_from_fills(
 ) -> float:
     """Realized PnL for one order recomputed live FROM ITS FILLS (0.0 until any
     exit fills exist). Use this for display/aggregation instead of the cached
-    ``order.realized_pnl`` field, which is only refreshed when a reconcile runs —
+    ``order.realized_pnl`` field, which is only refreshed when a reconcile runs -
     so a value stored before a fix, or before the next cycle, would otherwise go
     stale. A partial scale-out yields the interim banked PnL on the sold portion.
     """

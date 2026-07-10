@@ -377,124 +377,94 @@ class RiskConfig:
         default_factory=lambda: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"]
     )
     max_open_positions: int = 3
+    # A third concurrent position requires this confidence; the first two use
+    # min_confidence.
     third_order_min_confidence: float = 0.90
-    # Conviction floor. This is now a NOISE floor, not a participation gate:
-    # conviction-scaled sizing (SizingConfig) takes a small position for a
-    # marginal-but-valid setup instead of vetoing it, so this only rejects
-    # genuinely low-conviction noise. Matches SizingConfig.conviction_floor.
-    # Testnet uses an even looser floor so paper trading generates fills + data
-    # (see testnet_min_confidence and RiskGovernor.evaluate).
+    # Confidence floor below which a proposal is rejected as noise. Matches
+    # SizingConfig.conviction_floor. Testnet uses the looser floor so paper
+    # trading still generates fills.
     min_confidence: float = 0.50
     testnet_min_confidence: float = 0.40
-    # Evidence freshness: this is an HOURLY swing desk entering off 1h/4h
-    # structure, so a read stays usable for ~an hour (a 20-min-old observation is
-    # not a different market on this horizon).
+    # Maximum evidence age. Entries are decided off 1h/4h structure, so a read
+    # stays usable for about an hour.
     stale_data_seconds: int = 60 * 60
     per_trade_risk_fraction: float = 0.01
-    # Swing-width bracket: stops/targets are sized for hours-to-days holds off
-    # 1h/4h structure, not an intraday scalp. Feeds the deterministic StrategyAgent
-    # baseline and the legacy single-leg bracket (when exits.enabled is False).
+    # Default bracket for the StrategyAgent baseline and the single-leg fallback
+    # when exits.enabled is False. Sized for multi-day holds.
     stop_loss_pct: float = 0.04
     take_profit_pct: float = 0.06
-    # Correlated-exposure cap: BTC/ETH/SOL/BNB move together, so several majors
-    # long at once is ONE leveraged beta bet. This caps total open notional across
-    # the correlated majors (a portfolio limit the position-count cap alone misses).
-    # 0 disables. Default = 2x the single-position book unit.
+    # Cap on total open notional across the correlated majors; BTC/ETH/SOL/BNB
+    # move together, and the position-count cap alone does not bound beta
+    # exposure. 0 disables.
     max_correlated_notional_usd: float = 200.0
-    # Daily-loss circuit breaker: once realized PnL for the UTC day drops to
+    # Daily-loss circuit breaker: when realized PnL for the UTC day reaches
     # -daily_loss_halt_pct * capital_budget, new BUYs are halted (HOLD/CLOSE still
-    # allowed) and the rejection is recorded as a real risk-control breach. 0 disables.
+    # allowed) and the rejection is recorded as a risk breach. 0 disables.
     daily_loss_halt_pct: float = 0.05
-    # Must exceed the modeled round-trip cost (backtest model: 2x fee_bps + slippage_bps
-    # = 25 bps), otherwise every minimum-edge trade loses money by construction.
+    # Must exceed the modeled round-trip cost (2x fee_bps + slippage_bps = 25 bps),
+    # otherwise minimum-edge trades lose money by construction.
     min_expected_edge_bps: float = 30.0
-    # Per-trade risk sizing assumes the stop does not fill exactly at its price:
-    # worst-case loss = notional * (stop_loss_pct + assumed_slippage + gap buffer).
-    # A limit stop on spot can gap through in a fast move, so the buffer is the
-    # extra cushion operators want priced into the per-trade risk check.
+    # Worst-case loss = notional * (stop_loss_pct + slippage + gap buffer); a limit
+    # stop can fill worse than its price and gap through in a fast move.
     assumed_slippage_bps: float = 5.0
     stop_gap_buffer_pct: float = 0.0
-    # Auditability: a supervisor BUY must cite evidence ids that resolve to
-    # records actually gathered this cycle. When true, a BUY whose evidence_refs
-    # resolve to nothing is rejected instead of silently re-scored on the
-    # symbol's evidence (which lets the LLM fabricate its consultation trail).
+    # When true, a supervisor BUY whose evidence_refs resolve to no record gathered
+    # this cycle is rejected; citations cannot be fabricated.
     require_evidence_refs: bool = True
-    # Timeframe whose ATR sizes maker-pullback entry offsets and the runner trail.
-    # A swing desk sizes off the 1h candle, not 15m (see maker_pullback_price and
-    # ExitConfig.trail_atr_mult; both read snapshot.atr, set from this interval).
+    # Timeframe whose ATR sizes maker-pullback entry offsets and the runner trail
+    # (read via snapshot.atr by maker_pullback_price and ExitConfig.trail_atr_mult).
     atr_interval: str = "1h"
-    # Maker-pullback entries: a BUY limit rests BELOW the current bid so it fills
-    # on a normal dip as a maker order (lower fees, better entry), not by chasing
-    # the ask. Offset = entry_atr_mult * ATR(atr_interval), clamped to a band so it
-    # neither sits on the bid nor sits so far it never fills. The band is wider for
-    # swing so a deeper 1h pullback entry is still reachable.
+    # Maker-pullback entry: the BUY limit rests below the bid at
+    # entry_atr_mult * ATR(atr_interval), clamped to [entry_min_offset_bps,
+    # entry_max_offset_pct] so it neither sits on the bid nor rests unfillably deep.
     entry_atr_mult: float = 0.3
     entry_min_offset_bps: float = 5.0
     entry_max_offset_pct: float = 0.025
-    # A BUY whose limit is above the bid by more than this many bps is rejected
-    # ("entry must rest below the market, not chase"). Small tolerance absorbs the
-    # research->gate drift; 0 would reject any limit at/above bid.
+    # Reject a BUY limit more than this many bps above the bid. The tolerance
+    # absorbs research-to-gate price drift; 0 rejects any limit at/above bid.
     max_cross_spread_bps: float = 5.0
-    # Anti-churn cooldown: a freshly opened long cannot be CLOSED discretionarily by
-    # the agent team for this many hours (matches the bid TTL / hourly-swing horizon),
-    # so the desk holds for hours instead of re-litigating a still-valid position every
-    # cycle. The deterministic stop-loss/exit-ladder still fires anytime, and an
-    # operator close bypasses this — it only gates the LLM's discretionary exits.
+    # Minimum age before the agent team may close a filled position. The exit
+    # ladder and operator closes are exempt.
     min_hold_hours: float = 4.0
-    # Hard maker discipline: when true, the deterministic gate OVERRIDES the LLM's
-    # proposed BUY limit with the maker-pullback price (bid - entry_atr_mult*ATR,
-    # clamped), so an entry can never chase/cross the spread. The LLM's suggested
-    # price is recorded for audit but never sent.
+    # When true, the gate caps the LLM's proposed BUY limit at the maker-pullback
+    # price so an entry cannot cross the spread. The proposed price is kept for
+    # audit.
     hard_maker_entry: bool = True
     # --- Demand-zone laddered entries -------------------------------------- #
-    # Instead of defaulting to WAIT when a liked name is poorly located, the desk
-    # rests scaled limit bids INTO the next computed demand zone (well below price)
-    # with the stop below the zone. These knobs govern that behaviour.
-    #
-    # Allow a zone-anchored bid to sit this far below market (the old flat 2% price
-    # leash forbade real swing supports, which sit 3-6% down). Only bids tied to a
-    # confirmed support zone get this depth; un-anchored bids keep the tight leash.
+    # Maximum depth below market for a bid anchored to a computed support zone.
     max_bid_depth_pct: float = 0.08
-    # A bid NOT anchored to a demand zone may still only sit this far from market
-    # (the legacy shallow-pullback behaviour, preserved as the fallback).
+    # Maximum deviation from market for a bid with no zone anchor.
     unanchored_max_deviation_pct: float = 0.02
-    # When true, a deep bid (beyond unanchored_max_deviation_pct) is allowed only if
-    # it rests inside/just above the low of a computed support zone. False reverts to
-    # the old flat-deviation check for everyone.
+    # When true, only zone-anchored bids may exceed unanchored_max_deviation_pct.
     require_zone_anchored_bids: bool = True
-    # Ladder: split the conviction notional across this many resting bids at
-    # successive support zones (nearest first). 1 disables laddering.
+    # Number of resting bids laddered across successive support zones. 1 disables
+    # laddering.
     ladder_legs: int = 3
-    # Notional split across ladder legs (nearest..deepest). Normalised at use; extra
-    # legs beyond the list reuse the last weight. Front-loaded so the most likely
-    # fill carries the most size.
+    # Notional split across ladder legs, nearest zone first. Normalized at use;
+    # extra legs reuse the last weight.
     ladder_size_split: list[float] = field(default_factory=lambda: [0.5, 0.3, 0.2])
-    # A resting bid is cancelled if unfilled after this many minutes (GTD-style), so
-    # a stale bid never fills days later into a dead thesis. 0 disables expiry.
-    bid_ttl_minutes: int = 240
-    # Minimum reward:risk a zone-anchored entry must clear (target vs zone stop). A
-    # swing setup that cannot show this from the bid is not worth the capital.
+    # Cancel a resting bid unfilled after this many minutes. Zone bids need days
+    # for the market to reach them. 0 disables expiry.
+    bid_ttl_minutes: int = 4320
+    # Minimum reward:risk (target vs zone stop) a zone-anchored entry must clear.
     min_reward_risk: float = 1.5
-    # Stop sits this fraction of the zone height BELOW the zone low (a clean break of
-    # the demand zone invalidates the thesis -> out small).
+    # Stop distance below the zone low, as a fraction of price; a zone break
+    # invalidates the entry thesis.
     zone_stop_buffer_pct: float = 0.005
-    # In a confirmed downtrend the desk does not bid every zone; it only works the
-    # single deepest, highest-confluence zone and at reduced size (this multiplier).
+    # In a confirmed downtrend only the deepest, highest-confluence zone is bid,
+    # scaled by this multiplier.
     downtrend_size_mult: float = 0.5
-    # Live mark-to-market cache TTL: open-position unrealized PnL is refreshed from
-    # the public spot API at most this often (operator commands + loop heartbeat).
+    # Cache TTL for marking open-position PnL to the public spot API.
     mark_refresh_seconds: int = 300
-    # How often the fast bracket monitor evaluates open-position TP/SL exits between
-    # (hourly) decision cycles. Decoupled from the LLM cadence so a stop/trailing
-    # touch is acted on within ~this many seconds instead of at the next cycle.
+    # Interval for the fast bracket monitor that evaluates TP/SL between decision
+    # cycles, so a stop touch is acted on without waiting for the next cycle.
     bracket_monitor_seconds: int = 60
 
 
 @dataclass(slots=True)
 class BacktestConfig:
-    """Fee/slippage and base order size for OFFLINE historical simulation
-    (`backtest` and `backtest-decisions`). This is not a live trading mode —
-    the system trades real spot on testnet/live only."""
+    """Fee/slippage and base order size for offline historical simulation
+    (`backtest` and `backtest-decisions`). Not a live trading mode."""
 
     order_notional_usd: float = 100.0
     fee_bps: float = 10.0
@@ -505,11 +475,10 @@ class BacktestConfig:
 class StrategyConfig:
     """Tunable constants for the deterministic StrategyAgent baseline.
 
-    These were previously hard-coded magic numbers; exposing them lets the
-    edge transfer function and confidence model be tuned and backtested
-    instead of taken on faith. ``edge_scale_bps`` maps a combined evidence
-    score in [-1, 1] onto an expected edge; the confidence model is
+    ``edge_scale_bps`` maps a combined evidence score in [-1, 1] onto an
+    expected edge; the confidence model is
     confidence_base + |score|*score_coef + avg_agent_confidence*agreement_coef.
+    Exposed as config so both can be tuned and backtested.
     """
 
     agent_weights: dict[str, float] = field(
@@ -531,40 +500,32 @@ class StrategyConfig:
 class SizingConfig:
     """Conviction-scaled position sizing.
 
-    Replaces the old all-or-nothing model (fixed notional gated behind a hard
-    confidence floor, which froze the desk in choppy tapes). Target notional now
-    scales with conviction x edge, de-risked by a fractional-Kelly multiplier,
-    current volatility, the macro regime, and data quality. A marginal-but-valid
-    setup takes a SMALL real position instead of being vetoed, so the desk keeps
-    participating (and learning) instead of waiting for near-certainty.
-
-    The book unit is ``LiveConfig.capital_budget_usd``; this sizer scales it
-    between ``min_size_frac`` and ``kelly_fraction`` of that unit. The deterministic
-    RiskGovernor still independently validates per-trade risk and exposure, so the
-    sizer only ever PROPOSES a size the gate can still shrink or reject.
+    Target notional scales with conviction x edge, reduced by volatility, macro
+    regime, and data-quality multipliers. The book unit is
+    ``LiveConfig.capital_budget_usd``, scaled between ``min_size_frac`` and
+    ``kelly_fraction`` of that unit. The RiskGovernor validates per-trade risk
+    and exposure independently; this sizer only proposes.
     """
 
-    # Conviction below conviction_floor never reaches the sizer (RiskGovernor
-    # min_confidence rejects it as noise). At/above conviction_full the conviction
-    # factor saturates at 1.0; between them it ramps linearly.
+    # Below conviction_floor a proposal is rejected upstream (RiskConfig
+    # min_confidence). The conviction factor ramps linearly and saturates at
+    # conviction_full.
     conviction_floor: float = 0.50
     conviction_full: float = 0.80
     # expected_edge_bps at/above this saturates the edge factor at 1.0.
     edge_full_bps: float = 60.0
-    # Smallest fraction of the book unit a just-valid setup takes (so a marginal
-    # trade is small, not skipped). At full strength the fraction reaches
-    # kelly_fraction (<=1.0; lower = global de-risk, classic fractional Kelly).
+    # Fraction of the book unit a just-valid setup takes; at full strength the
+    # fraction reaches kelly_fraction (<= 1.0).
     min_size_frac: float = 0.15
     kelly_fraction: float = 1.0
-    # Volatility targeting: when ATR%% (on RiskConfig.atr_interval, i.e. 1h) exceeds
-    # this, notional is trimmed by vol_target_pct / atr_pct so unusually volatile
-    # names get smaller size. Set against the 1h ATR basis (~2x the old 15m basis).
+    # When ATR% (on RiskConfig.atr_interval) exceeds this, notional is trimmed by
+    # vol_target_pct / atr_pct.
     vol_target_pct: float = 0.02
-    # Multiplier callers apply in a risk-off / strong-USD regime (see WP2).
+    # Multiplier callers apply in a risk-off / strong-USD regime.
     regime_risk_off_mult: float = 0.5
-    # Exchange min-notional floor; a computed size below this returns 0 (skip).
+    # Exchange minimum notional; a computed size below this returns 0 (skip).
     min_notional_usd: float = 15.0
-    # Hard cap per position (also clamped to the available book unit).
+    # Hard cap per position, also clamped to the available book unit.
     max_notional_usd: float = 100.0
 
 
@@ -572,37 +533,31 @@ class SizingConfig:
 class ExitConfig:
     """Tiered take-profit scale-out with a ratcheting/trailing stop.
 
-    Instead of a single all-or-nothing take-profit, an open position is exited
-    in tiers: each ``take_profit_tiers`` entry sells ``size_pct`` of the original
-    quantity once price reaches ``profit_pct`` above entry. The remainder
-    (1 - sum(size_pct)) is the *runner*: it has no fixed target and rides a
-    trailing stop, so a strong move is not capped. The stop only ever moves up:
-    after tier ``move_stop_to_breakeven_after_tier`` fills it moves to entry
-    (the trade becomes risk-free); after ``lock_stop_to_prior_tier_after_tier``
-    it moves to the previous tier's price (locking realized gains). These knobs
-    are config (not magic numbers) so the exit policy can be tuned and
-    backtested. ``enabled=False`` falls back to the legacy single-leg TP/SL.
+    Each ``take_profit_tiers`` entry sells ``size_pct`` of the original quantity
+    once price reaches ``profit_pct`` above entry. The remainder
+    (1 - sum(size_pct)) is the runner: no fixed target, exits on the trailing
+    stop. The stop only moves up: to entry after
+    ``move_stop_to_breakeven_after_tier`` fills, and to the prior tier's price
+    for every tier at/after ``lock_stop_to_prior_tier_after_tier``.
+    ``enabled=False`` falls back to the single-leg TP/SL.
     """
 
     enabled: bool = True
-    # Swing-width bracket: ~4% initial stop with multi-% scale-out tiers, sized for
-    # hours-to-days holds off 1h/4h structure rather than an intraday scalp.
     initial_stop_loss_pct: float = 0.04
     take_profit_tiers: list[dict[str, float]] = field(
         default_factory=lambda: [
             {"profit_pct": 0.030, "size_pct": 0.40},  # TP1
             {"profit_pct": 0.060, "size_pct": 0.30},  # TP2
+            {"profit_pct": 0.100, "size_pct": 0.15},  # TP3
         ]
     )
-    # After these (1-based) tier indices fill, the stop ratchets up. 0 disables.
+    # 1-based tier indices that trigger each stop ratchet. 0 disables.
     move_stop_to_breakeven_after_tier: int = 1
     lock_stop_to_prior_tier_after_tier: int = 2
-    # Runner (the unsold remainder) rides a trailing stop instead of a target.
     trail_runner: bool = True
     trail_pct: float = 0.03
-    # When set, the runner trail distance is trail_atr_mult * ATR(RiskConfig.atr_interval,
-    # i.e. 1h) instead of trail_pct (absolute price distance below the high-water
-    # mark). ~2.5x 1h ATR gives the swing runner room to ride a multi-day move.
+    # When set, trail distance is trail_atr_mult * ATR(RiskConfig.atr_interval)
+    # below the high-water mark instead of trail_pct.
     trail_atr_mult: float | None = 2.5
 
     @property
@@ -613,16 +568,15 @@ class ExitConfig:
 
 @dataclass(slots=True)
 class CostConfig:
-    """Material-change cycle tiers: spend the expensive deep-agent call only when
-    the cycle state warrants it. The fast bracket monitor manages TP/SL between
-    cycles, so skipping the LLM never leaves a position unmanaged.
+    """Cycle cost tiers: pay for the deep-agent call only when the cycle state
+    warrants it. The bracket monitor manages TP/SL between cycles, so skipping
+    the LLM never leaves a position unmanaged.
 
-    - FULL: full model + all subagents + MCP (entry signal, position near a
-      bracket / outside the PnL band, first cycle of the UTC day, or a material
-      price move).
-    - REVIEW: cheap ``quiet_model`` + ``review_subagents`` only + no MCP (a quiet
-      open position past the review interval).
-    - SKIP: no LLM at all (flat book, no signal, no move) -> deterministic WAIT.
+    - FULL: full model, all subagents, MCP tools (new entry signal with capacity,
+      first cycle of the UTC day, or a material price move).
+    - REVIEW: ``quiet_model`` with ``review_subagents`` only, no MCP (holding
+      positions; news-sentry check).
+    - SKIP: no LLM; deterministic WAIT.
     """
 
     enabled: bool = True
@@ -631,16 +585,12 @@ class CostConfig:
     bracket_proximity_pct: float = 0.4
     review_interval_minutes: float = 180.0
     full_on_first_cycle_of_day: bool = True
-    # "provider:model" for the REVIEW tier: a cheap mini so holding cycles run a
-    # brief positions-only review at a fraction of FULL cost instead of either paying
-    # full price to babysit or going dark. Operator-tunable; set None to make REVIEW
-    # behave like SKIP (deterministic hold, no LLM).
-    quiet_model: str | None = "openai:gpt-5.1-mini"
-    # technical_analyst confirms structure/zone validity on a holding cycle; strategy
-    # + risk_review weigh HOLD/ADJUST/CLOSE; reporting writes the audit line.
-    review_subagents: list[str] = field(
-        default_factory=lambda: ["technical_analyst", "strategy", "risk_review", "reporting"]
-    )
+    # "provider:model" for the REVIEW tier. None degrades REVIEW branches to SKIP.
+    quiet_model: str | None = "openai:gpt-5.4-mini"
+    # Positions are exited mechanically, so a holding cycle only scans held
+    # symbols for a critical adverse catalyst (hack, delisting, enforcement,
+    # insolvency).
+    review_subagents: list[str] = field(default_factory=lambda: ["news_research"])
 
 
 @dataclass(slots=True)
@@ -652,9 +602,7 @@ class LiveConfig:
     min_capital_budget_usd: float = 25.0
     max_capital_budget_usd: float = 100.0
     auto_orders_within_caps: bool = True
-    # Promotion gate: a minimum sample of closed round trips before paper/testnet
-    # results are trusted enough to consider a live-capital test (a single lucky
-    # trade is not evidence of edge).
+    # Minimum closed round trips on testnet before live capital is considered.
     promotion_min_closed_trades: int = 5
 
 
@@ -664,7 +612,7 @@ class ModelConfig:
     model: str = "gpt-5.1"
     base_url: str = "https://api.openai.com/v1"
     api_key_env: str = "OPENAI_API_KEY"
-    # Optional per-subagent overrides, e.g. {"news_research": "openai:gpt-5.1-mini"}.
+    # Optional per-subagent overrides, e.g. {"news_research": "openai:gpt-5.4-mini"}.
     # Subagents without an entry inherit the supervisor's model.
     subagent_models: dict[str, str] = field(default_factory=dict)
 

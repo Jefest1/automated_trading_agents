@@ -1,9 +1,9 @@
 """Deterministic support/resistance + demand-zone engine over multi-timeframe OHLCV.
 
 This is the math half of the hybrid TA design: it computes *candidate* levels the
-way a desk would draw them — fractal swing pivots, volume-by-price acceptance
+way a desk would draw them; fractal swing pivots, volume-by-price acceptance
 (High-Volume Nodes = demand zones), prior month/week/day extremes, Fibonacci
-retracement of the active swing, round numbers, and dynamic EMA support — then
+retracement of the active swing, round numbers, and dynamic EMA support; then
 clusters overlapping candidates into price *zones* (bands, not lines) scored by
 confluence. A technical_analyst agent later confirms which zone to actually bid.
 
@@ -104,7 +104,7 @@ def volume_by_price(candles: list[Candle], bins: int = 24, top_quantile: float =
 
     Volume is bucketed by each candle's typical price (hlc3). Bins whose volume is
     at/above the ``top_quantile`` of non-empty bins are returned as
-    (price_center, volume) — these are acceptance/demand zones where price spent
+    (price_center, volume); these are acceptance/demand zones where price spent
     real participation, the closest deterministic proxy to a drawn demand zone.
     """
     if len(candles) < 5:

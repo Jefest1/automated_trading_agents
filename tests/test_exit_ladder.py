@@ -125,7 +125,7 @@ class ExitPlanPersistenceTest(unittest.TestCase):
                 reloaded = store.open_positions()[0]
         self.assertIsNotNone(reloaded.exit_plan)
         self.assertTrue(reloaded.exit_plan.tiered)
-        self.assertEqual(len(reloaded.exit_plan.legs), 2)
+        self.assertEqual(len(reloaded.exit_plan.legs), 3)
 
     def test_legacy_row_without_column_loads_single_leg_plan(self) -> None:
         with TemporaryDirectory() as tmp:

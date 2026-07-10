@@ -31,7 +31,7 @@ def build_exit_plan(
 
     When ``exit_config.enabled`` is False this yields the legacy single-leg
     bracket (one TP at 100%, fixed stop) so behavior is unchanged on rollback.
-    ``stop_price`` (absolute) overrides the computed stop for BOTH branches — a
+    ``stop_price`` (absolute) overrides the computed stop for BOTH branches; a
     demand-zone bid must keep its stop just below the zone, not a fixed % off entry.
     """
     if not exit_config.enabled or not exit_config.take_profit_tiers:
@@ -164,8 +164,11 @@ def apply_tier_fill(
     ):
         new_stop = max(new_stop, entry_price)
     if exit_config.lock_stop_to_prior_tier_after_tier and (
-        tier == exit_config.lock_stop_to_prior_tier_after_tier
+        tier >= exit_config.lock_stop_to_prior_tier_after_tier
     ):
+        # Every tier at/after the lock threshold ratchets the stop to the tier
+        # below it (TP2 fill -> stop at TP1; TP3 fill -> stop at TP2, +6% locked),
+        # so a pyramid-out ladder keeps banking as it climbs.
         prior = _leg(plan, tier - 1)
         new_stop = max(new_stop, prior.target_price if prior is not None else entry_price)
     plan.current_stop_price = round(new_stop, 8)

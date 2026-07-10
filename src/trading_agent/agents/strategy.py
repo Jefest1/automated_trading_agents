@@ -20,8 +20,8 @@ from trading_agent.core.risk import conviction_size, maker_pullback_price
 # The live values come from config.strategy (see StrategyConfig).
 AGENT_WEIGHTS = StrategyConfig().agent_weights
 
-# Evidence this bearish (combined, weighted) means the desk does not accumulate the
-# name at all — a demand zone is only worth bidding when the read is not negative.
+# Combined weighted score below this skips demand-zone bidding for the symbol;
+# support is only bid when the evidence read is not negative.
 _BEARISH_SKIP_SCORE = -0.10
 
 
@@ -53,9 +53,9 @@ class StrategyAgent:
             weight_total = 0.0
             confidence_total = 0.0
             for record in live_records:
-                # Honest down-weighting: a degraded fallback source (web news,
-                # coarse TVL proxy) counts for less than a primary source. quality
-                # is 1.0 for primary, lower for fallbacks (see EvidenceRecord).
+                # Degraded fallback sources (web news, coarse TVL proxy) count for
+                # less than primary ones: quality is 1.0 for primary, lower for
+                # fallbacks (see EvidenceRecord).
                 weight = tuning.agent_weights.get(record.agent, tuning.default_agent_weight) * record.quality
                 weighted_score += record.score * weight
                 weight_total += weight
@@ -224,7 +224,7 @@ class StrategyAgent:
         if total_notional <= 0:
             return []
 
-        # Cap legs so each carries at least the exchange minimum notional (no dust).
+        # Cap the leg count so each carries at least the exchange minimum notional.
         min_notional = config.sizing.min_notional_usd
         max_legs = max(1, int(total_notional // min_notional))
         legs = legs[: min(len(legs), max_legs)]

@@ -60,17 +60,18 @@ class DecisionReplayTest(unittest.TestCase):
         self.assertEqual(result.trades[0].exit_reason, "TAKE_PROFIT")
 
     def test_tiered_replay_scales_out_and_trails(self) -> None:
-        # Default tiered exits: a strong up-move banks TP1 (+1.5%) and TP2 (+3%),
-        # then the runner rides a trailing stop and exits on the pullback.
+        # Default tiered exits: a strong up-move banks TP1 (+3%), TP2 (+6%), and
+        # TP3 (+10%), then the runner rides a trailing stop out on the pullback.
         config = AppConfig()  # exits.enabled defaults True
         rec = buy_record("dec_tiered")
         window = {
             "dec_tiered": [
-                candle(low=99.0, high=100.0, close=100.0),   # fills entry @100
-                candle(low=100.5, high=101.6, close=101.5),  # TP1 (101.5) banks
-                candle(low=102.0, high=103.2, close=103.0),  # TP2 (103.0) banks
-                candle(low=104.0, high=106.0, close=105.5),  # runner high-water 106
-                candle(low=103.0, high=105.0, close=103.5),  # trail stop (106*0.98=103.88) hit
+                candle(low=99.0, high=100.0, close=100.0),    # fills entry @100
+                candle(low=100.5, high=103.2, close=103.0),   # TP1 (103) banks -> stop 100
+                candle(low=102.0, high=106.1, close=106.0),   # TP2 (106) banks -> stop 103
+                candle(low=104.0, high=110.2, close=110.0),   # TP3 (110) banks -> stop 106; runner active
+                candle(low=108.0, high=114.0, close=113.5),   # runner high-water 114 -> trail 110.58
+                candle(low=110.0, high=112.0, close=110.5),   # trail stop (114*0.97=110.58) hit
             ]
         }
         result = replay_recorded_decisions([rec], window, config)
