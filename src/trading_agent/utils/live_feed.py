@@ -48,7 +48,13 @@ class BinanceLiveFeed:
             snapshot = self._snapshot_from_rest(symbol)
         if snapshot is None:
             self.last_source[symbol] = "simulated"
+            LOGGER.warning(
+                "live feed unavailable symbol=%s; serving SIMULATED fallback price "
+                "(excluded from position management)",
+                symbol,
+            )
             return self.fallback.snapshot(symbol, cycle)
+        snapshot.source = self.last_source.get(symbol, "live")
         return snapshot
 
     def _snapshot_from_skill(self, symbol: str) -> MarketSnapshot | None:

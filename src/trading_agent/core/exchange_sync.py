@@ -105,6 +105,17 @@ class ExchangeReconciler:
                     continue
                 changed = self.sync_order(order)
                 snapshot = (snapshots or {}).get(order.symbol)
+                if snapshot is not None and getattr(snapshot, "source", "live") == "simulated":
+                    # A simulated fallback price must never drive the trailing
+                    # stop, a stop-out, or an on-fill invalidation: high_water
+                    # ratchets one-way, so one fake mark permanently corrupts the
+                    # ladder. Manage exits only on real marks.
+                    LOGGER.warning(
+                        "skipping exit management for %s %s: snapshot is simulated fallback",
+                        order.symbol,
+                        order.id,
+                    )
+                    snapshot = None
                 # Auto-expire an unfilled resting bid past its TTL: a demand-zone bid
                 # that has not filled in this window is cancelled so capital is freed
                 # and a stale bid never fills later into a changed market.

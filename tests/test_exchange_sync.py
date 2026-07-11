@@ -439,6 +439,28 @@ class TieredRestingExitTest(unittest.TestCase):
         ]
         self.assertEqual(tier1_resells, [])
 
+    def test_simulated_snapshot_never_moves_trail_or_stops_out(self) -> None:
+        # Regression: a simulated fallback price (sim ETH seed 4000 vs live ~1800)
+        # ratcheted the one-way high_water and dragged the stop above market,
+        # arming a false stop-out. Simulated marks must not manage exits.
+        order = self._tiered_order()
+        plan_before = order.exit_plan
+        stop_before = plan_before.current_stop_price
+        hw_before = plan_before.high_water_price
+        fake = snapshot("BTCUSDT", 4000.0)  # far above any real mark
+        fake.source = "simulated"
+        self.reconciler.reconcile({"BTCUSDT": fake})
+        reloaded = self.store.open_positions()[0]
+        self.assertEqual(reloaded.exit_plan.high_water_price, hw_before)
+        self.assertEqual(reloaded.exit_plan.current_stop_price, stop_before)
+        # A simulated mark below the stop must not trigger a stop-out either.
+        fake_low = snapshot("BTCUSDT", 1.0)
+        fake_low.source = "simulated"
+        self.reconciler.reconcile({"BTCUSDT": fake_low})
+        exits = [s for s in self.adapter.submitted if s.get("client_order_id", "").endswith("x")]
+        self.assertEqual(exits, [])
+        self.assertEqual(self.store.open_positions()[0].status, OrderStatus.POSITION_OPEN)
+
     def test_resting_tier_fill_ratchets_stop_to_breakeven(self) -> None:
         plan = build_exit_plan(
             100.0, _intraday_exits(), fallback_take_profit_pct=0.015, fallback_stop_loss_pct=0.01

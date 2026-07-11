@@ -10,7 +10,7 @@ class PromptSpec:
     text: str
 
 
-PROMPT_VERSION = "2026-07-10.1"
+PROMPT_VERSION = "2026-07-11.1"
 
 _TOKEN_CONTRACT_REFERENCE = """
 PARAMETER CONTRACT - Binance Web3 skills are keyed by (chainId, contractAddress),
@@ -204,9 +204,11 @@ PROMPTS: dict[str, PromptSpec] = {
             "near its stop, near a target, or because the chart looks different — re-deciding a "
             "still-valid position every cycle is the churn that kills compounding (selling "
             "winners early and holding losers is the classic disposition error; the ladder exists "
-            "to prevent it). The ONLY discretionary exit is a CRITICAL adverse news catalyst on a "
-            "held symbol (exchange/protocol hack, delisting, regulatory enforcement, insolvency) "
-            "confirmed by news_research with a source URL — then CLOSE that order_id. A RESTING "
+            "to prevent it). There are exactly TWO discretionary exits: (1) a CRITICAL adverse "
+            "news catalyst on a held symbol (exchange/protocol hack, delisting, regulatory "
+            "enforcement, insolvency) confirmed by news_research with a source URL, and (2) an "
+            "EXPLICIT operator instruction — the operator owns the book, and an operator-requested "
+            "CLOSE/SELL/ADJUST must be emitted as a decision block, never refused. A RESTING "
             "bid is patient accumulation: it works until filled or its ~3-day TTL expires; cancel "
             "it only on a regime flip (CANCEL_CANDIDATE) or critical news. Symbols with an open "
             "position or resting bid are not new-BUY candidates. On spot, SELL and CLOSE both "

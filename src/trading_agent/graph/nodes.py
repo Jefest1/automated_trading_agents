@@ -12,6 +12,7 @@ decision before execution.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -42,6 +43,30 @@ if TYPE_CHECKING:
     from trading_agent.graph.runtime import SupervisorRuntime
 
 LOGGER = get_logger("nodes")
+
+# Exception type names (checked along the __cause__/__context__ chain) that mean
+# the network dropped, not that the request was invalid; safe to retry.
+_TRANSIENT_NETWORK_ERRORS = frozenset(
+    {
+        "ReadError",
+        "ReadTimeout",
+        "ConnectError",
+        "ConnectTimeout",
+        "RemoteProtocolError",
+        "APIConnectionError",
+        "APITimeoutError",
+    }
+)
+
+
+def _is_transient_network_error(exc: BaseException | None) -> bool:
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if type(exc).__name__ in _TRANSIENT_NETWORK_ERRORS:
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
 
 
 def _order_age_minutes(opened_at: str | None) -> float | None:
@@ -457,10 +482,28 @@ class CycleNodes:
                 "configurable": {"thread_id": runtime.store.get_setting("agent_thread_id")},
                 "callbacks": [usage_cb, ToolCallLogger(mcp_tool_names)],
             }
-            if runtime.event_callback is not None:
-                response = await astream_deep_agent(agent, payload, invoke_config, runtime._emit)
-            else:
-                response = await agent.ainvoke(payload, config=invoke_config)
+            # A dropped connection mid-stream (httpx ReadError etc.) cannot be
+            # retried inside the SDK once the stream has started; retry the whole
+            # supervisor invocation for transient network failures.
+            attempts = 3
+            for attempt in range(1, attempts + 1):
+                try:
+                    if runtime.event_callback is not None:
+                        response = await astream_deep_agent(agent, payload, invoke_config, runtime._emit)
+                    else:
+                        response = await agent.ainvoke(payload, config=invoke_config)
+                    break
+                except Exception as exc:
+                    if attempt == attempts or not _is_transient_network_error(exc):
+                        raise
+                    LOGGER.warning(
+                        "supervisor invocation hit a transient network error "
+                        "(attempt %s/%s): %s; retrying",
+                        attempt,
+                        attempts,
+                        exc,
+                    )
+                    await asyncio.sleep(5 * attempt)
             self._record_token_usage(run_id, cycle, usage_cb.usage_metadata)
             message = extract_agent_message(response)
             runtime.store.save_prompt_log(
@@ -630,10 +673,10 @@ class CycleNodes:
             elif decision.action in {DecisionAction.CLOSE, DecisionAction.SELL}:
                 # Min-hold: the agent team cannot close a filled position within the
                 # cooldown. The exit ladder (via exchange_sync, not this gate) fires
-                # anytime, and operator closes bypass this.
+                # anytime, and operator-sourced closes bypass this.
                 if (
                     target.status == OrderStatus.POSITION_OPEN
-                    and decision.source != "operator"
+                    and not decision.source.startswith("operator")
                     and runtime.config.risk.min_hold_hours > 0
                 ):
                     age_minutes = _order_age_minutes(target.opened_at)

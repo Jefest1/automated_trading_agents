@@ -43,8 +43,11 @@ class MarketSnapshot:
     bid_price: float
     ask_price: float
     volume_24h: float
-    # ATR(15m) when available, used to size maker-pullback entries below the bid.
+    # ATR on the configured interval when available; sizes maker-pullback entries.
     atr: float | None = None
+    # Feed provenance ("binance-rest", "binance-skills-hub", "simulated", ...).
+    # Position management must never act on a simulated fallback price.
+    source: str = "live"
 
 
 # Evidence sources ending in this suffix are deterministic stand-ins emitted

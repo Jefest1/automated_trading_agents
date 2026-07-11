@@ -37,6 +37,7 @@ class SimulatedMarketFeed:
             bid_price=round(bid, 8),
             ask_price=round(ask, 8),
             volume_24h=round(volume, 2),
+            source="simulated",
         )
 
     @staticmethod

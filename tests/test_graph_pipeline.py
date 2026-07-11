@@ -490,6 +490,45 @@ class GraphPipelineTest(unittest.TestCase):
         self.assertEqual(closed, [])
         self.assertIn(position.id, still_open)
 
+    def test_operator_chat_close_bypasses_min_hold(self) -> None:
+        # An operator-confirmed close (source operator_chat) is exempt from the
+        # min-hold cooldown; the operator owns the book.
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with Store(root / "agent.sqlite3") as store:
+                runtime = self._runtime(root, store, llm_settings())
+                runtime.config.risk.min_hold_hours = 4.0
+                position = OrderRecord(
+                    proposal_id="tp_seed",
+                    mode="testnet",
+                    symbol="BTCUSDT",
+                    side=Side.BUY,
+                    order_type="SPOT_LIMIT_ENTRY",
+                    price=100.0,
+                    quantity=1.0,
+                    take_profit_price=1_000_000.0,
+                    stop_loss_price=0.000001,
+                    status=OrderStatus.POSITION_OPEN,
+                )  # opened_at defaults to now, inside the 4h cooldown
+                store.save_order(position)
+                from trading_agent.core.decision import DecisionAction, SupervisorDecision
+                from trading_agent.graph.nodes import CycleNodes
+
+                decision = SupervisorDecision(
+                    action=DecisionAction.CLOSE,
+                    symbol="BTCUSDT",
+                    target_order_id=position.id,
+                    rationale="operator requested",
+                    source="operator_chat",
+                )
+                nodes = CycleNodes(runtime)
+                result = nodes.risk_gate(
+                    {"run_id": "t", "decisions": [decision], "snapshots": {}, "evidence": []}
+                )
+
+        self.assertEqual(result["approved_count"], 1)
+        self.assertEqual(result["rejected_count"], 0)
+
     def test_cycle_context_marks_open_position_to_live_market(self) -> None:
         with TemporaryDirectory() as tmp:
             root = Path(tmp)

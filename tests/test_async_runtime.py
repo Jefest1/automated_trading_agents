@@ -127,3 +127,21 @@ class ThreadRotationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransientNetworkErrorTest(unittest.TestCase):
+    def test_detects_wrapped_read_error(self) -> None:
+        from trading_agent.graph.nodes import _is_transient_network_error
+
+        class ReadError(Exception):
+            pass
+
+        inner = ReadError("connection dropped")
+        outer = RuntimeError("stream failed")
+        outer.__cause__ = inner
+        self.assertTrue(_is_transient_network_error(outer))
+
+    def test_non_network_error_is_not_transient(self) -> None:
+        from trading_agent.graph.nodes import _is_transient_network_error
+
+        self.assertFalse(_is_transient_network_error(ValueError("bad decision json")))
